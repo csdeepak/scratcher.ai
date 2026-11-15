@@ -1,0 +1,9 @@
+{
+  "name": "Waymark",
+  "short_name": "Waymark",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbfaf6",
+  "theme_color": "#fde68a",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

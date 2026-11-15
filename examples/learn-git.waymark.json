@@ -1,0 +1,396 @@
+{
+  "format": "waymark-bundle",
+  "schemaVersion": 1,
+  "exportedAt": "2026-11-15T09:00:00.000Z",
+  "generator": "waymark",
+  "roadmap": {
+    "id": "rm-example1",
+    "title": "Example: Learn Git fundamentals",
+    "profile": "learning",
+    "description": "A small sample roadmap that shows every feature. Explore, edit or delete it.",
+    "agentAccess": "review",
+    "created": "2026-11-15T09:00:00.000Z",
+    "overview": "## Goal\nBe comfortable using Git day to day: commit deliberately, branch and merge, and collaborate through pull requests.\n\n## Context for agents\nThe learner can use a terminal and has written small programs. Keep explanations practical with runnable commands.\n\n## What this sample shows\n- Main path down the left, sub-checkpoints to the right\n- Prerequisites (dashed arrows) and an **optional** branch (Rebase)\n- Approved vs. draft content, statuses, and the understanding check\n- Notes with checklists and code, resources with a video timestamp"
+  },
+  "checkpoints": [
+    {
+      "parent": null,
+      "order": 1,
+      "summary": "What problem Git solves and the mental model of snapshots.",
+      "status": "complete",
+      "understanding": "can-explain",
+      "approved": true,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "Explain to a friend why \"final_v2_really_final.doc\" is a version-control problem.",
+      "resources": [
+        {
+          "title": "Pro Git: About version control",
+          "url": "https://git-scm.com/book/en/v2/Getting-Started-About-Version-Control",
+          "kind": "book"
+        }
+      ],
+      "sections": {
+        "objectives": "- Describe what a repository, a commit and a snapshot are.\n- Contrast centralised and distributed version control.",
+        "content": "Git records **snapshots** of a project over time. Each snapshot (a *commit*) knows its parent, so history forms a chain you can inspect, compare and return to.\n\nBecause every clone holds the full history, Git is *distributed*: you can commit offline and share later.",
+        "known": "I have used Google Docs version history, which is similar for single files.",
+        "notes": "The key shift for me: Git stores **snapshots**, not lists of edits.\n\n- [x] Read the Pro Git intro\n- [x] Watch one overview video",
+        "takeaways": "- A commit = snapshot + message + parent pointer.\n- Every clone is a full backup.",
+        "ownWords": "Git is a time machine for a folder: I take labelled photos of the whole folder and can go back to any photo."
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitwhy001",
+      "title": "Why version control"
+    },
+    {
+      "parent": null,
+      "order": 2,
+      "summary": "Install Git and set your identity and editor.",
+      "status": "complete",
+      "understanding": "can-apply",
+      "approved": true,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: First-time setup",
+          "url": "https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup",
+          "kind": "book"
+        }
+      ],
+      "sections": {
+        "content": "```bash\ngit config --global user.name \"Your Name\"\ngit config --global user.email \"you@example.com\"\ngit config --global init.defaultBranch main\n```",
+        "evidence": "Ran `git config --list` and saw my name and email."
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitsetup1",
+      "title": "Install and configure Git"
+    },
+    {
+      "parent": null,
+      "order": 3,
+      "summary": "Record changes deliberately and read the history.",
+      "status": "learning",
+      "understanding": "not-yet",
+      "approved": true,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitsetup1"
+      ],
+      "completion": "Make five meaningful commits in a practice repo and find any change with `git log -p`.",
+      "resources": [],
+      "sections": {
+        "objectives": "- Use the staging area to build focused commits.\n- Read history with `log` and `diff`.\n- Undo mistakes without losing work.",
+        "content": "A commit is built in two steps: **stage** what you want (`git add`), then **commit** it with a message. Small, focused commits make history readable.",
+        "notes": "Still confusing: when is `git restore` vs `git reset` the right tool?",
+        "questions": "- What happens to staged changes if I switch branches?"
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitcommit",
+      "title": "Commits and history"
+    },
+    {
+      "parent": "cp-gitcommit",
+      "order": 1,
+      "summary": "Choose exactly what goes into the next commit.",
+      "status": "complete",
+      "understanding": "can-explain",
+      "approved": true,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: Recording changes",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Recording-Changes-to-the-Repository",
+          "kind": "book"
+        }
+      ],
+      "sections": {
+        "content": "Files move between three areas: **working tree → staging area (index) → repository**.\n\n```bash\ngit status        # what changed\ngit add file.txt  # stage one file\ngit add -p        # stage hunk by hunk\ngit commit -m \"Explain why, not what\"\n```",
+        "ownWords": "Staging is a shopping basket: I put in only what belongs in this commit, then pay (commit).",
+        "takeaways": "- `git add -p` is the best habit for focused commits."
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitstage1",
+      "title": "The staging area"
+    },
+    {
+      "parent": "cp-gitcommit",
+      "order": 2,
+      "summary": "Find when and why something changed.",
+      "status": "learning",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: Viewing the commit history",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Viewing-the-Commit-History",
+          "kind": "book"
+        }
+      ],
+      "sections": {
+        "content": "```bash\ngit log --oneline --graph --all\ngit log -p -- path/to/file\ngit diff            # unstaged changes\ngit diff --staged   # what will be committed\n```",
+        "practice": "1. In a practice repo, make three commits to one file.\n2. Use `git log -p` to find the commit that introduced a specific line."
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitlog001",
+      "title": "Reading history: log and diff"
+    },
+    {
+      "parent": "cp-gitcommit",
+      "order": 3,
+      "summary": "Discard, unstage, amend and revert without losing work.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitlog001"
+      ],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: Undoing things",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Undoing-Things",
+          "kind": "book"
+        }
+      ],
+      "sections": {
+        "content": "| Situation | Command |\n|---|---|\n| Discard unstaged edits | `git restore file` |\n| Unstage | `git restore --staged file` |\n| Fix last commit message | `git commit --amend` |\n| Undo a pushed commit | `git revert <sha>` |"
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitundo01",
+      "title": "Undoing changes safely"
+    },
+    {
+      "parent": null,
+      "order": 4,
+      "summary": "Work on parallel lines of development and combine them.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitcommit"
+      ],
+      "completion": "Create two branches with conflicting edits, merge them, and resolve the conflict unaided.",
+      "resources": [
+        {
+          "title": "Pro Git: Basic branching and merging",
+          "url": "https://git-scm.com/book/en/v2/Git-Branching-Basic-Branching-and-Merging",
+          "kind": "book"
+        },
+        {
+          "title": "Learn Git Branching (interactive)",
+          "url": "https://learngitbranching.js.org/",
+          "kind": "course"
+        },
+        {
+          "title": "Example video (replace with one you like)",
+          "url": "https://example.com/videos/git-branching",
+          "kind": "video",
+          "start": "4:10",
+          "note": "The diagram at 4:10 shows how HEAD moves."
+        }
+      ],
+      "sections": {
+        "content": "A branch is just a movable pointer to a commit. `HEAD` points at the branch you are on."
+      },
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitbranch",
+      "title": "Branching and merging"
+    },
+    {
+      "parent": "cp-gitbranch",
+      "order": 1,
+      "summary": "`git switch -c`, `git branch`, and what HEAD means.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "",
+      "resources": [],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitbrnew1",
+      "title": "Create and switch branches"
+    },
+    {
+      "parent": "cp-gitbranch",
+      "order": 2,
+      "summary": "Fast-forward vs. merge commits; reading conflict markers.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitbrnew1"
+      ],
+      "completion": "",
+      "resources": [],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitmerge1",
+      "title": "Merge and resolve conflicts"
+    },
+    {
+      "parent": "cp-gitbranch",
+      "order": 3,
+      "summary": "An alternative to merging that rewrites history. Useful, but optional for now.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": true,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitmerge1"
+      ],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: Rebasing",
+          "url": "https://git-scm.com/book/en/v2/Git-Branching-Rebasing",
+          "kind": "book"
+        }
+      ],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitrebas1",
+      "title": "Rebase"
+    },
+    {
+      "parent": null,
+      "order": 5,
+      "summary": "Share work through a hosted repository.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitbranch"
+      ],
+      "completion": "",
+      "resources": [
+        {
+          "title": "Pro Git: Working with remotes",
+          "url": "https://git-scm.com/book/en/v2/Git-Basics-Working-with-Remotes",
+          "kind": "book"
+        }
+      ],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitremot1",
+      "title": "Working with remotes"
+    },
+    {
+      "parent": "cp-gitremot1",
+      "order": 1,
+      "summary": "Keep a local copy in sync with a remote.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [],
+      "completion": "",
+      "resources": [],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitpush01",
+      "title": "Clone, fetch, pull and push"
+    },
+    {
+      "parent": "cp-gitremot1",
+      "order": 2,
+      "summary": "Propose changes and respond to review.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitpush01"
+      ],
+      "completion": "",
+      "resources": [
+        {
+          "title": "GitHub Docs: Pull requests",
+          "url": "https://docs.github.com/en/pull-requests",
+          "kind": "docs"
+        }
+      ],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitpr0001",
+      "title": "Pull requests and code review"
+    },
+    {
+      "parent": null,
+      "order": 6,
+      "summary": "Use the whole workflow on a real repository.",
+      "status": "not-started",
+      "understanding": "not-yet",
+      "approved": false,
+      "optional": false,
+      "archived": false,
+      "agentAccess": null,
+      "prerequisites": [
+        "cp-gitremot1",
+        "cp-gitundo01"
+      ],
+      "completion": "A merged pull request to any repository (your own counts) that went through at least one review round.",
+      "resources": [],
+      "sections": {},
+      "rev": 0,
+      "updated": "2026-11-15T09:00:00.000Z",
+      "id": "cp-gitcapst1",
+      "title": "Capstone: contribute to a project"
+    }
+  ],
+  "layout": {
+    "schema": "waymark-layout/1",
+    "offsets": {}
+  }
+}
