@@ -9,6 +9,8 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
 import { gfm } from 'micromark-extension-gfm';
+import { math } from 'micromark-extension-math';
+import { mathFromMarkdown } from 'mdast-util-math';
 
 interface Block {
   text: string;
@@ -28,13 +30,21 @@ function signature(node: unknown): string {
   });
 }
 
+/** "$$E=mc^2$$" on one line (a paragraph holding only a formula) means the same as a $$ block. */
+function asMathBlock(node: unknown): unknown {
+  const n = node as { type?: string; value?: string; children?: { type?: string; value?: string }[] };
+  if (n.type === 'paragraph' && n.children?.length === 1 && n.children[0]!.type === 'inlineMath') return { type: 'math', value: n.children[0]!.value?.trim() };
+  if (n.type === 'math') return { type: 'math', value: n.value?.trim() };
+  return node;
+}
+
 function blocks(md: string): Block[] | null {
   try {
-    const tree = fromMarkdown(md, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+    const tree = fromMarkdown(md, { extensions: [gfm(), math()], mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()] });
     return tree.children.map((node) => {
       const start = node.position?.start.offset ?? 0;
       const end = node.position?.end.offset ?? start;
-      return { text: md.slice(start, end), sig: signature(node) };
+      return { text: md.slice(start, end), sig: signature(asMathBlock(node)) };
     });
   } catch {
     return null;

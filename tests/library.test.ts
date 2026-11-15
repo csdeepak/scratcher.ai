@@ -143,3 +143,28 @@ Some explanation paragraph.
     expect(calc.status).toBe('complete');
   });
 });
+
+describe('maths', () => {
+  it('renders $…$ and $$…$$ in exports and leaves Markdown export as written', async () => {
+    await ws.applyAppOps(RM, [{ op: 'update', id: 'cp-gitbranch', set: { sections: { content: 'Inline $a^2+b^2=c^2$ and a block:\n\n$$\n\nabla f(x) = 0\n$$\n\nBroken: $\frac{1$' } } }]);
+    const rm = ws.getRoadmap(RM);
+    let cssCalls = 0;
+    const html = toHtml(rm, { mathCss: () => (cssCalls++, '<link rel="stylesheet" href="/api/katex/katex.min.css" />') });
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('katex-display');
+    expect(html).toContain('/api/katex/katex.min.css');
+    expect(cssCalls).toBe(1);
+    expect(html).toContain('katex-error'); // a typo shows in red instead of failing the export
+    expect(toMarkdown(rm)).toContain('$a^2+b^2=c^2$');
+    // documents without maths don't load KaTeX at all
+    const plain = toHtml({ ...rm, checkpoints: {} }, { mathCss: () => 'KATEX' });
+    expect(plain).not.toContain('KATEX');
+  });
+
+  it('keeps maths blocks exactly as written when other text is edited', async () => {
+    const { preserveFormatting } = await import('../src/shared/preserveFormatting');
+    const original = 'Intro.\n\n$$E=mc^2$$\n\nThe end.';
+    const fromEditor = 'Intro, edited.\n\n$$\nE=mc^2\n$$\n\nThe end.';
+    expect(preserveFormatting(original, fromEditor)).toBe('Intro, edited.\n\n$$E=mc^2$$\n\nThe end.');
+  });
+});

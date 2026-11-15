@@ -130,7 +130,7 @@ workspace/
         branching-and-merging.md
       proposals/            agent-written changesets waiting for review
   templates/                reusable roadmap structures (*.json bundles without notes/progress)
-  backups/YYYY-MM-DD/       daily export bundles (last 30 days)
+  backups/YYYY-MM-DD/       daily full backups, .waymark.zip with attachments (last 30 days)
   .waymark/                 app-internal: history, review queue, trash, archived proposals
 ```
 
@@ -239,8 +239,9 @@ The app never silently overwrites a newer human change. Its own saves are field-
 * **Reopen:** state is rebuilt from the files on every start. UI state (expanded nodes, panel widths, selection) is kept per browser and is safe to lose.
 * **History:** every change (app, agent, proposal, import, restore) is appended to `.waymark/history/<roadmap>.jsonl` with full before/after file text. Rapid app edits are coalesced per checkpoint. You can restore any checkpoint version or revert an individual change field by field.
 * **Trash:** deleted checkpoints are kept in `.waymark/trash/` until you restore or empty them. Deleting from the UI asks for confirmation when a checkpoint has content or children, and always offers *Undo*.
-* **Backups:** each day the first save writes `backups/YYYY-MM-DD/<slug>.waymark.json` for each roadmap (the last 30 days are kept). *Backup now* is in the menu. For off-machine safety, put the workspace in OneDrive or Dropbox, or `git init` it. All formats are plain text.
-* **Export/import:** `*.waymark.json` bundle with `format`, `schemaVersion`, the roadmap, checkpoints (sections included), and layout. Import validates and migrates the file, then always creates a new roadmap, so nothing is overwritten.
+* **Backups:** each day the first save writes `backups/YYYY-MM-DD/<slug>.waymark.zip` for each roadmap: the bundle plus every attached image and PDF (the last 30 days are kept). *Backup now* is in the menu. For off-machine safety, put the workspace in OneDrive or Dropbox, or `git init` it. Notes stay plain text; the zip is an ordinary archive any tool can open.
+* **Export/import:** `*.waymark.zip` (full backup) or `*.waymark.json` (data only), a bundle with `format`, `schemaVersion`, the roadmap, checkpoints (sections included), and layout. Import validates and migrates the bundle, restores only well-formed attachment paths, then always creates a new roadmap, so nothing is overwritten.
+* **Maths:** LaTeX in `$…$` / `$$…$$`, rendered by KaTeX (remark-math in the reading view, Milkdown's LaTeX feature in the editor, micromark's math extension in exports). Editing elsewhere in a section keeps maths exactly as written (preserveFormatting treats `$$x$$` and a multi-line `$$` block as the same node). Print views link the app's KaTeX stylesheet; downloaded web pages embed it with its fonts.
 * **Schema versions:** `roadmap.md` carries `schema: waymark/1`; bundles and changesets carry their own versions. Migrations are pure functions `vN → vN+1` in `src/shared/migrations.ts`, run on load and on import.
 
 ---

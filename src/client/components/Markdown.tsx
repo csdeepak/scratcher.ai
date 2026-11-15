@@ -1,6 +1,8 @@
 import { memo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { toast } from 'sonner';
 import { Crepe } from '@milkdown/crepe';
 import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
@@ -46,11 +48,16 @@ export function followLink(roadmapId: string | undefined, href: string): boolean
   return false;
 }
 
+// Maths: $…$ inline and $$…$$ blocks, rendered with KaTeX. Mistakes show in red instead of breaking the page.
+const REMARK_PLUGINS = [remarkGfm, remarkMath];
+const REHYPE_PLUGINS: [typeof rehypeKatex, { throwOnError: boolean; strict: 'ignore' }][] = [[rehypeKatex, { throwOnError: false, strict: 'ignore' }]];
+
 export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roadmapId }: { text: string; onToggleTask?: (offset: number) => void; roadmapId?: string }) {
   return (
     <div className="prose-wm">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
         components={{
           a: ({ node: _n, href, ...p }) => (
             <a
@@ -190,10 +197,10 @@ export function RichEditor({
       features: {
         [Crepe.Feature.AI]: false,
         [Crepe.Feature.TopBar]: false,
-        [Crepe.Feature.Latex]: false,
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
+        [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false, strict: 'ignore' } },
         // Images: uploads become attachments; stored paths like ../attachments/… are shown via the server.
         [Crepe.Feature.ImageBlock]: {
           onUpload: upload,

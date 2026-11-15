@@ -3,6 +3,7 @@
 
 import { micromark } from 'micromark';
 import { gfm, gfmHtml } from 'micromark-extension-gfm';
+import { math, mathHtml } from 'micromark-extension-math';
 import { ALL_SECTIONS, type Checkpoint, type Roadmap, type SectionKey } from './model';
 import { SECTION_DEFS, UNDERSTANDING_LEVELS, getProfile, statusDef } from './profiles';
 import { childrenIndex, computeProgress, type Progress } from './tree';
@@ -141,7 +142,7 @@ export function toMarkdown(rm: Roadmap, opts: ExportOptions = {}): string {
 // ------------------------------------------------------------------ HTML (print → PDF)
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const renderMd = (s: string) => micromark(s, { extensions: [gfm()], htmlExtensions: [gfmHtml()] });
+const renderMd = (s: string) => micromark(s, { extensions: [gfm(), math()], htmlExtensions: [gfmHtml(), mathHtml({ throwOnError: false, strict: 'ignore' })] });
 
 const STATUS_COLORS: Record<string, [string, string]> = {
   todo: ['#f5f2ea', '#57534e'],
@@ -156,7 +157,15 @@ export function attachmentRel(src: string): string | null {
   return m ? decodeURI(m[1]!) : null;
 }
 
-export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean; asset?: (rel: string) => { src: string; embedded: boolean } | null } = {}): string {
+export function toHtml(
+  rm: Roadmap,
+  opts: ExportOptions & {
+    print?: boolean;
+    asset?: (rel: string) => { src: string; embedded: boolean } | null;
+    /** <link> or <style> for KaTeX, added only when the document contains maths. */
+    mathCss?: () => string;
+  } = {},
+): string {
   const resolve = (url: string) => {
     const rel = attachmentRel(url);
     if (!rel || !opts.asset) return url;
@@ -216,12 +225,16 @@ export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean; ass
     return parts.filter(Boolean).join('\n');
   };
 
+  const body = tree.map(block).join('\n');
+  const overviewHtml = rm.meta.overview.trim() && !branch ? md(shiftHeadings(rm.meta.overview.trim(), 3)) : '';
+  const hasMath = /class="katex/.test(body + overviewHtml);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${esc(title)}</title>
+${hasMath && opts.mathCss ? opts.mathCss() : ''}
 <style>
   :root { --ink:#1c1917; --muted:#57534e; --line:#e6e1d6; --paper:#fbfaf6; --main:#fde68a; --blue:#2563eb; }
   * { box-sizing: border-box; }
@@ -265,6 +278,8 @@ export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean; ass
   .resources { padding-left: 18px; } .resources li { margin: 4px 0; }
   .resources .url { display:none; font-size: 11px; color: var(--muted); word-break: break-all; }
   .ts { font-size: 12px; font-weight:600; color: var(--blue); }
+  .katex-display { overflow-x: auto; overflow-y: hidden; }
+  .katex-error { color: #dc2626; }
   footer { margin-top: 40px; color: var(--muted); font-size: 12px; border-top:1px solid var(--line); padding-top: 10px; }
   @page { size: A4; margin: 16mm 14mm; }
   @media print {
@@ -289,10 +304,10 @@ export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean; ass
     ${rm.meta.description && !branch ? `<p class="desc">${esc(rm.meta.description)}</p>` : ''}
     ${total.total ? `<div class="bar"><div style="width:${pct}%"></div></div><div class="muted">${total.done} of ${total.total} complete (${pct}%) · exported ${esc(date)}</div>` : `<div class="muted">Exported ${esc(date)}</div>`}
   </header>
-  ${rm.meta.overview.trim() && !branch ? `<h2 class="part">Goal and context</h2><div class="body">${md(shiftHeadings(rm.meta.overview.trim(), 3))}</div>` : ''}
+  ${overviewHtml ? `<h2 class="part">Goal and context</h2><div class="body">${overviewHtml}</div>` : ''}
   <h2 class="part">Contents</h2>
   <nav class="toc">${toc(tree)}</nav>
-  ${tree.map(block).join('\n')}
+  ${body}
   <footer>Made with Waymark · ${esc(rm.meta.id)}${opts.personal === false ? ' · personal notes left out' : ''}</footer>
 </main>
 ${opts.print ? '<script>window.addEventListener("load", () => setTimeout(() => window.print(), 350));</script>' : ''}

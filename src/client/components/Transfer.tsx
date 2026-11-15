@@ -9,7 +9,7 @@ import { canCaptureMap, downloadMapImage } from '../mapExport';
 import { navigate, refreshLibrary, setState, useStore } from '../store';
 import { Button, Modal, cx } from './ui';
 
-type Format = 'pdf' | 'html' | 'md' | 'png' | 'opml' | 'json';
+type Format = 'pdf' | 'html' | 'md' | 'png' | 'opml' | 'zip' | 'json';
 
 const FORMATS: { key: Format; label: string; ext: string; icon: ReactNode; hint: string }[] = [
   { key: 'pdf', label: 'PDF document', ext: '.pdf', icon: <Printer size={16} />, hint: 'A clean, printable document. Opens a print view: choose “Save as PDF”.' },
@@ -17,7 +17,8 @@ const FORMATS: { key: Format; label: string; ext: string; icon: ReactNode; hint:
   { key: 'md', label: 'Markdown', ext: '.md', icon: <FileText size={16} />, hint: 'For Notion, Obsidian, GitHub, or pasting into an AI chat.' },
   { key: 'png', label: 'Map image', ext: '.png', icon: <Image size={16} />, hint: 'A picture of the whole map as it looks now.' },
   { key: 'opml', label: 'Outline (OPML)', ext: '.opml', icon: <ListTree size={16} />, hint: 'For mind-map and outliner apps such as XMind, MindNode or Workflowy.' },
-  { key: 'json', label: 'Waymark backup', ext: '.waymark.json', icon: <Archive size={16} />, hint: 'Everything, exactly. Import it again here or on another computer.' },
+  { key: 'zip', label: 'Full backup', ext: '.waymark.zip', icon: <Archive size={16} />, hint: 'Everything, including attached images and PDFs. Import it here or on another computer.' },
+  { key: 'json', label: 'Data only', ext: '.waymark.json', icon: <FileCode size={16} />, hint: 'All checkpoints and notes as JSON, without attachments. Handy for scripts and agents.' },
 ];
 
 async function downloadFrom(url: string, fallback: string) {
@@ -202,7 +203,7 @@ export function ImportDialog() {
     try {
       const content = await file.text();
       const name = file.name.toLowerCase();
-      const stem = file.name.replace(/\.(waymark\.json|json|md|markdown|txt|opml|xml)$/i, '');
+      const stem = file.name.replace(/\.(waymark\.json|waymark\.zip|json|zip|md|markdown|txt|opml|xml)$/i, '');
       if (name.endsWith('.json')) {
         let data: unknown;
         try {
@@ -211,6 +212,17 @@ export function ImportDialog() {
           throw new Error('That file is not valid JSON.');
         }
         await done(await http.post(`/api/import?folder=${encodeURIComponent(folder)}`, data));
+      } else if (name.endsWith('.zip')) {
+        let res: Response;
+        try {
+          res = await fetch(`/api/import/zip?folder=${encodeURIComponent(folder)}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/zip' } });
+        } catch {
+          throw new Error('The Waymark server is not reachable.');
+        }
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error ?? 'This backup could not be imported.');
+        await done({ roadmapId: body.roadmapId, warnings: body.warnings ?? [] });
+        if (body.attachments) toast.success(`Restored ${body.attachments} attached file(s).`);
       } else if (name.endsWith('.opml') || name.endsWith('.xml')) {
         const o = parseOpml(content);
         if (!o.items.length) throw new Error('No outline items found in that file.');
@@ -278,13 +290,13 @@ export function ImportDialog() {
             <Upload size={20} className="text-muted" />
             <span className="text-[13.5px] font-semibold">{busy ? 'Importing…' : 'Choose a file or drop it here'}</span>
             <span className="text-[12px] text-muted">
-              <b>.waymark.json</b> backup · <b>.md</b> outline (headings and lists become checkpoints) · <b>.opml</b> from mind-map apps
+              <b>.waymark.zip</b> full backup · <b>.waymark.json</b> data · <b>.md</b> outline (headings and lists become checkpoints) · <b>.opml</b> from mind-map apps
             </span>
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".json,.md,.markdown,.txt,.opml,.xml,application/json,text/markdown,text/plain"
+            accept=".zip,.json,.md,.markdown,.txt,.opml,.xml,application/zip,application/json,text/markdown,text/plain"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];

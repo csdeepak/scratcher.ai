@@ -7,6 +7,7 @@ import { existsSync, readFileSync, readdirSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import {
   parseCheckpoint,
   parseRoadmapFile,
@@ -1254,6 +1255,81 @@ export class Workspace extends EventEmitter {
     return toBundle(this.toRoadmap(this.rt(id)));
   }
 
+  /**
+   * Full backup: roadmap.waymark.json (all data) plus every attached file under attachments/.
+   * Already-compressed files (images, PDFs) are stored as they are.
+   */
+  async exportZip(id: string): Promise<Uint8Array> {
+    const rt = this.rt(id);
+    const files: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {
+      'roadmap.waymark.json': strToU8(JSON.stringify(toBundle(this.toRoadmap(rt)), null, 2)),
+    };
+    for (const list of Object.values(rt.attachments)) {
+      for (const a of list) {
+        try {
+          files[a.path] = [new Uint8Array(await fs.readFile(path.join(rt.dir, ...a.path.split('/')))), { level: 0 }];
+        } catch {
+          /* removed meanwhile */
+        }
+      }
+    }
+    return zipSync(files, { level: 6 });
+  }
+
+  /** Restore a full backup (.waymark.zip) as a new roadmap, attachments included. */
+  async importZip(data: Uint8Array, opts: { folder?: string } = {}) {
+    let total = 0;
+    let entries: Record<string, Uint8Array>;
+    try {
+      entries = unzipSync(data, {
+        filter: (f) => {
+          total += f.originalSize;
+          if (total > 2 * 1024 * 1024 * 1024) throw new HttpError(413, 'This backup unpacks to more than 2 GB.');
+          return f.name.endsWith('.waymark.json') || f.name.startsWith('attachments/');
+        },
+      });
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(400, 'This is not a readable .zip file.');
+    }
+    const names = Object.keys(entries);
+    const bundleName = names.find((n) => n === 'roadmap.waymark.json') ?? names.find((n) => n.endsWith('.waymark.json'));
+    if (!bundleName) throw new HttpError(400, 'This .zip has no roadmap.waymark.json, so it is not a Waymark backup.');
+    let bundle: unknown;
+    try {
+      bundle = JSON.parse(strFromU8(entries[bundleName]!));
+    } catch {
+      throw new HttpError(400, 'The roadmap data inside this backup is not valid JSON.');
+    }
+    const res = await this.importBundle(bundle, { folder: opts.folder });
+    const rt = this.rt(res.roadmap.meta.id);
+    const warnings = [...res.warnings];
+    let restored = 0;
+    await this.run(async () => {
+      for (const name of names) {
+        // Only attachments/<checkpoint-id>/<file> with an allowed type, for a checkpoint that exists.
+        const parts = name.split('/');
+        if (parts.length !== 3 || parts[0] !== 'attachments' || !parts[2]) {
+          if (name.startsWith('attachments/') && !name.endsWith('/')) warnings.push(`Skipped ${name}`);
+          continue;
+        }
+        const [, cp, file] = parts as [string, string, string];
+        const clean = safeFileName(file);
+        const ext = clean.split('.').pop()?.toLowerCase() ?? '';
+        const bytes = entries[name]!;
+        if (!rt.cps[cp] || clean !== file || !ATTACHMENT_TYPES[ext] || bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+          warnings.push(`Skipped ${name}`);
+          continue;
+        }
+        await writeBinaryAtomic(path.join(rt.dir, 'attachments', cp, clean), bytes);
+        restored++;
+      }
+      await this.scanAttachments(rt);
+    });
+    this.emitEvent({ type: 'roadmap', roadmapId: rt.meta.id, ids: [], source: 'import' });
+    return { roadmap: this.toRoadmap(rt), warnings, attachments: restored };
+  }
+
   async deleteRoadmap(id: string) {
     return this.run(async () => {
       const rt = this.rt(id);
@@ -1699,7 +1775,8 @@ export class Workspace extends EventEmitter {
     const dir = path.join(this.root, dirRel);
     await ensureDir(dir);
     for (const rt of this.rts.values()) {
-      await writeFileAtomic(path.join(dir, `${rt.slug}.waymark.json`), JSON.stringify(toBundle(this.toRoadmap(rt)), null, 2));
+      // Full backups: data and attachments in one file per roadmap (folders kept as sub-folders).
+      await writeBinaryAtomic(path.join(dir, ...`${rt.slug}.waymark.zip`.split('/')), await this.exportZip(rt.meta.id));
     }
     const days = (await listDirs(path.join(this.root, 'backups'))).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
     for (const old of days.slice(0, Math.max(0, days.length - 30))) {

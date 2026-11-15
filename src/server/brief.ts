@@ -25,6 +25,7 @@ export function buildBrief(ws: Workspace, roadmapId: string, checkpointId: strin
     `- Notes from our session go into My notes as a new entry starting "### Session YYYY-MM-DD: <topic>". Use the format I asked for; if I didn't say, choose the clearest one (bullets and a worked example for concepts, steps and fixes for problems, grouped ideas and decisions for brainstorming, Q&A for question-heavy sessions). Keep it short.`,
     `- Sections you may write: ${profile.sections.filter((s) => !['notes', 'takeaways', 'known', 'ownWords', 'evidence'].includes(s)).join(', ')}. Markdown inside; use ## or smaller headings.`,
     `- Only real, working URLs for resources. Don't invent links or timestamps.`,
+    `- Maths: LaTeX with $…$ inline and $$ … $$ blocks for display equations.`,
     `- Reply with ONE fenced \`\`\`yaml block containing the changeset, then a short plain-language summary.`,
     '',
     '## Changeset format',

@@ -171,6 +171,8 @@ Waymark → Review → Paste proposal and previews it before anything changes.
   Link a PDF: \`[Lecture slides](../attachments/<checkpoint-id>/slides.pdf)\`. Paths are relative to the
   checkpoint file, so they also work in Obsidian or VS Code.
 - Link another checkpoint by its id: \`[Gradient descent](cp-k3x9a2mf)\`. Web links: normal Markdown links.
+- Maths: LaTeX with \`$…$\` inline and a \`$$\` block on its own lines for display equations, e.g.
+  \`$\\nabla f(x) = 0$\`. Write \`\\$\` for a literal dollar sign. The app renders it with KaTeX.
 
 ## Common tasks
 

@@ -38,8 +38,9 @@ Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `
 | Organise | Library → new folder (folders can nest, e.g. *Learning / Semester 5*); drag a roadmap onto a folder; ⋯ on a roadmap for colour and *Move to* |
 | New roadmap | **New roadmap**: pick *Learning* (adds objectives, practice, evidence, understanding) or *General*, a folder and a colour |
 | Export | ⋯ → **Export**: PDF (print view → *Save as PDF*), web page, Markdown, map image (PNG), OPML for mind-map apps, or a full backup. Whole roadmap or one branch; with or without your personal notes. |
-| Import | **Import**: a Waymark backup, a Markdown outline (headings and lists become checkpoints, e.g. a syllabus pasted from a chat), or OPML from mind-map apps |
+| Import | **Import**: a full backup (`.waymark.zip`, attachments included) or data file (`.waymark.json`), a Markdown outline (headings and lists become checkpoints, e.g. a syllabus pasted from a chat), or OPML from mind-map apps |
 | Images and PDFs | Drop them on a checkpoint's page, paste a screenshot (Ctrl+V), or use **Attachments → Add**. Pasting or dropping into a section you're editing inserts the image or a link right there. Click any image or PDF to open it in the built-in viewer (zoom, page jumps, working links, Ctrl+F). |
+| Maths | Write LaTeX: `$a^2+b^2=c^2$` inline, or a display equation between `$$` lines. It renders in notes, in the editor (with a live preview) and in PDF and web page exports. Write `\$` for a plain dollar sign. |
 | Links | Web links open in a new tab; `[title](cp-…)` jumps to another checkpoint; links to attachments open the viewer. While editing, Ctrl+click follows a link. |
 | Add checkpoints | Toolbar **+ Main checkpoint**, or select one and press **A** (sub-checkpoint) / **N** (next) |
 | Reorganise | Drag in the outline, **Tab / Shift+Tab** to indent, **Alt+↑/↓** to reorder, drag on the map for manual position |
@@ -106,8 +107,10 @@ Session notes arrive as additions to My notes, and you preview everything first.
 - **History** of every change (yours, agents', imports) is in `.waymark/history/` with full before/after
   text; restore from a checkpoint's History section.
 - **Trash** (menu → Trash) restores deleted checkpoints and whole roadmaps.
-- **Daily backups**: the first save each day writes `backups/YYYY-MM-DD/<roadmap>.waymark.json`
-  (30 days kept); menu → *Back up now* any time. Restore one with menu → *Import*.
+- **Daily backups**: the first save each day writes `backups/YYYY-MM-DD/<roadmap>.waymark.zip` with
+  the roadmap and all its attached images and PDFs (30 days kept); menu → *Back up now* any time.
+  Restore one with menu → *Import*; it always comes back as a new roadmap, so nothing is overwritten.
+  A `.waymark.zip` is an ordinary zip: `roadmap.waymark.json` plus the `attachments/` folder.
 - For off-machine safety put the workspace in OneDrive/Dropbox or `git init` it; everything is text.
 - Check a workspace without starting the app: `npm run validate` (or `npm run validate -- "<folder>"`).
 
@@ -121,13 +124,15 @@ attachments (drop, paste, add) with a built-in image and PDF viewer, working lin
 focus/overview, notebook sections with a visual Markdown editor, resources with video timestamps,
 statuses + understanding + approval, progress, autosave and offline queue, live agent edits with guard
 rules, review inbox, proposals, conflict detection, history/undo/trash, export/import, templates,
-daily backups, export to PDF, web page, Markdown, PNG, OPML and backup, import from backups, Markdown
-outlines and OPML, search, keyboard shortcuts, light/dark themes, small screens. 39 automated tests cover
-the file format, change engine, guard rules, conflicts, review, trash, history, folders (including folders
-moved outside the app), export formats, outline import, attachments (including blocked path tricks), agent session notes and keeping agent formatting when you edit.
+maths (LaTeX via KaTeX) in notes, editor and exports, daily full backups with attachments, export to PDF,
+web page, Markdown, PNG, OPML and backup, import from backups, Markdown outlines and OPML, search,
+keyboard shortcuts, light/dark themes, small screens. 43 automated tests cover the file format, change
+engine, guard rules, conflicts, review, trash, history, folders (including folders moved outside the app),
+export formats, maths, outline import, attachments and zip backups (including blocked path tricks), agent
+session notes and keeping agent formatting when you edit.
 
 Not yet (by design for v1): accounts, multi-person collaboration, cloud sync, built-in AI, an MCP server
-(file access already covers Claude), maths rendering, video or audio files, custom field profiles in the UI,
+(file access already covers Claude), video or audio files, custom field profiles in the UI,
 cross-roadmap links, a desktop installer (planned: see [docs/PLATFORMS.md](docs/PLATFORMS.md)), moving a whole
 folder into another folder from the app (rename works; move folders in your file manager).
 
@@ -136,4 +141,4 @@ folder into another folder from the app (rename works; move folders in your file
 All runtime dependencies are open source: React, React Flow (@xyflow/react), d3-hierarchy, Milkdown,
 react-arborist, Radix UI, cmdk, sonner, lucide, Tailwind CSS, Hono, chokidar, zod, yaml, jsdiff, nanoid,
 micromark/mdast (Markdown), html-to-image (map PNG), react-pdf (MIT) with Mozilla pdf.js (Apache-2.0),
-IBM Plex fonts (OFL). Waymark makes no network requests while running.
+KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). Waymark makes no network requests while running.

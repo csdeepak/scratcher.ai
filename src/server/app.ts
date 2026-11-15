@@ -11,11 +11,25 @@ import { parseCheckpoint } from '../shared/checkpointFile';
 import { getProfile } from '../shared/profiles';
 import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, type FieldPath } from '../shared/model';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { slugify } from '../shared/ids';
 import { toHtml, toMarkdown, toOpml } from '../shared/exporters';
 import { fromOutline, outlineFromMarkdown } from '../shared/outlineImport';
+
+const katexDist = path.join(path.dirname(createRequire(import.meta.url).resolve('katex/package.json')), 'dist');
+let katexInlineCache: string | null = null;
+/** KaTeX's stylesheet with its WOFF2 fonts embedded (about 300 KB), for self-contained pages. */
+function katexInline(): string {
+  if (katexInlineCache) return katexInlineCache;
+  const css = readFileSync(path.join(katexDist, 'katex.min.css'), 'utf8').replace(
+    /src:url\(fonts\/([^)]+?)\.woff2\) format\("woff2"\)(?:,url\([^)]+\) format\("[^"]+"\))*/g,
+    (_m, name: string) => `src:url(data:font/woff2;base64,${readFileSync(path.join(katexDist, 'fonts', `${name}.woff2`)).toString('base64')}) format("woff2")`,
+  );
+  katexInlineCache = `<style>${css}</style>`;
+  return katexInlineCache;
+}
 
 export function createApp(ws: Workspace) {
   const app = new Hono();
@@ -153,7 +167,7 @@ export function createApp(ws: Workspace) {
   });
 
   // Export: format = json (backup) | md | html (print → PDF) | opml
-  app.get('/api/roadmaps/:id/export', (c) => {
+  app.get('/api/roadmaps/:id/export', async (c) => {
     const id = c.req.param('id');
     const rm = ws.getRoadmap(id);
     const format = (c.req.query('format') ?? 'json').toLowerCase();
@@ -165,6 +179,9 @@ export function createApp(ws: Workspace) {
       case 'json':
         attach('waymark.json');
         return c.json(ws.exportRoadmap(id));
+      case 'zip':
+        attach('waymark.zip');
+        return c.body(new Uint8Array(await ws.exportZip(id)) as Uint8Array<ArrayBuffer>, 200, { 'Content-Type': 'application/zip' });
       case 'md':
       case 'markdown':
         attach('md');
@@ -175,9 +192,17 @@ export function createApp(ws: Workspace) {
       case 'html':
       case 'pdf':
         if (c.req.query('download') === '1') attach('html');
-        return c.html(toHtml(rm, { ...opts, print: format === 'pdf' || c.req.query('print') === '1', asset: (rel) => ws.exportAsset(id, rel) }));
+        return c.html(
+          toHtml(rm, {
+            ...opts,
+            print: format === 'pdf' || c.req.query('print') === '1',
+            asset: (rel) => ws.exportAsset(id, rel),
+            // A downloaded page carries KaTeX inside it so maths renders anywhere, offline.
+            mathCss: () => (c.req.query('download') === '1' ? katexInline() : '<link rel="stylesheet" href="/api/katex/katex.min.css" />'),
+          }),
+        );
       default:
-        throw new HttpError(400, `Unknown export format "${format}". Use json, md, html, pdf or opml.`);
+        throw new HttpError(400, `Unknown export format "${format}". Use zip, json, md, html, pdf or opml.`);
     }
   });
 
@@ -193,6 +218,14 @@ export function createApp(ws: Workspace) {
   });
 
   // Import an outline written in Markdown (headings and lists become checkpoints)
+  // Restore a full backup (.waymark.zip: data + attachments) as a new roadmap
+  app.post('/api/import/zip', async (c) => {
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    if (!data.byteLength) throw new HttpError(400, 'That file is empty.');
+    const res = await ws.importZip(data, { folder: c.req.query('folder') ?? '' });
+    return c.json({ roadmapId: res.roadmap.meta.id, warnings: res.warnings, attachments: res.attachments }, 201);
+  });
+
   app.post('/api/import/markdown', async (c) => {
     const b = await body(c, z.object({ text: z.string().min(1), title: z.string().optional(), profile: z.enum(['general', 'learning']).default('learning'), folder: z.string().default('') }));
     const outline = outlineFromMarkdown(b.text);
@@ -296,6 +329,21 @@ export function createApp(ws: Workspace) {
     try {
       const data = await readFile(path.join(pdfjsRoot, kind, name));
       return c.body(new Uint8Array(data), 200, { 'Cache-Control': 'public, max-age=604800', 'Content-Type': name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream' });
+    } catch {
+      throw new HttpError(404, 'Not found.');
+    }
+  });
+
+  // KaTeX stylesheet and fonts for maths in exported pages
+  app.get('/api/katex/katex.min.css', async (c) =>
+    c.body(await readFile(path.join(katexDist, 'katex.min.css'), 'utf8'), 200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=604800' }),
+  );
+  app.get('/api/katex/fonts/:file', async (c) => {
+    const name = path.basename(c.req.param('file'));
+    try {
+      const data = await readFile(path.join(katexDist, 'fonts', name));
+      const type = name.endsWith('.woff2') ? 'font/woff2' : name.endsWith('.woff') ? 'font/woff' : 'font/ttf';
+      return c.body(new Uint8Array(data), 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=604800' });
     } catch {
       throw new HttpError(404, 'Not found.');
     }

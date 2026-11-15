@@ -403,7 +403,7 @@ export function Home({ onImport }: { onImport: () => void }) {
             <div className="flex items-center gap-1.5">
               <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
             </div>
-            <div>Backups: one export per roadmap each day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
+            <div>Backups: a full backup (with attachments) of each roadmap every day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
           </footer>
         </div>
       </div>

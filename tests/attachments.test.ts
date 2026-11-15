@@ -61,3 +61,39 @@ describe('attachments', () => {
     expect(html).toContain(`href="../attachments/${CP}/missing.pdf"`); // missing files keep their link
   });
 });
+
+describe('full backups (.waymark.zip)', () => {
+  it('round-trips data and attachments, and ignores anything else in the zip', async () => {
+    const { unzipSync, zipSync, strToU8 } = await import('fflate');
+    await ws.addAttachment(RM, CP, 'diagram.png', PNG);
+    const zip = await ws.exportZip(RM);
+    expect(Object.keys(unzipSync(zip)).sort()).toEqual(['attachments/cp-gitbranch/diagram.png', 'roadmap.waymark.json']);
+
+    // add hostile or irrelevant entries to the same backup
+    const entries = unzipSync(zip);
+    entries['attachments/cp-gitbranch/../../evil.png'] = PNG;
+    entries['attachments/cp-unknown/x.png'] = PNG;
+    entries['attachments/cp-gitbranch/run.exe'] = strToU8('MZ');
+    entries['roadmap.md'] = strToU8('not used');
+    const res = await ws.importZip(zipSync(entries));
+    expect(res.attachments).toBe(1);
+    expect(res.warnings.filter((w) => w.startsWith('Skipped'))).toHaveLength(3);
+    const copy = ws.getRoadmap(res.roadmap.meta.id);
+    expect(copy.meta.id).not.toBe(RM);
+    expect(copy.attachments[CP]!.map((a) => a.name)).toEqual(['diagram.png']);
+    expect(existsSync(path.join(dir, 'roadmaps', copy.slug, 'attachments', CP, 'diagram.png'))).toBe(true);
+    expect(existsSync(path.join(dir, 'roadmaps', 'evil.png'))).toBe(false);
+
+    await expect(ws.importZip(new Uint8Array([1, 2, 3]))).rejects.toThrow(/not a readable/);
+  });
+
+  it('writes daily backups as full zips', async () => {
+    await ws.addAttachment(RM, CP, 'diagram.png', PNG);
+    const { dir: rel } = await ws.backupAll();
+    const { unzipSync } = await import('fflate');
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const [file] = readdirSync(path.join(dir, rel));
+    expect(file).toMatch(/\.waymark\.zip$/);
+    expect(Object.keys(unzipSync(readFileSync(path.join(dir, rel, file!))))).toContain(`attachments/${CP}/diagram.png`);
+  });
+});

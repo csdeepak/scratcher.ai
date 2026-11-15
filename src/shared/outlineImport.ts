@@ -6,6 +6,8 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
 import { gfm } from 'micromark-extension-gfm';
+import { math } from 'micromark-extension-math';
+import { mathFromMarkdown } from 'mdast-util-math';
 import { toString } from 'mdast-util-to-string';
 import type { Bundle } from './bundle';
 import type { Checkpoint, ProfileKey } from './model';
@@ -28,7 +30,7 @@ type MdNode = ReturnType<typeof fromMarkdown>['children'][number];
 
 export function outlineFromMarkdown(markdown: string): { title?: string; overview: string; items: OutlineItem[] } {
   const text = markdown.replace(/\r\n?/g, '\n');
-  const tree = fromMarkdown(text, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+  const tree = fromMarkdown(text, { extensions: [gfm(), math()], mdastExtensions: [gfmFromMarkdown(), mathFromMarkdown()] });
   const slice = (nodes: MdNode[]) =>
     nodes
       .map((n) => text.slice(n.position?.start.offset ?? 0, n.position?.end.offset ?? 0))

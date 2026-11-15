@@ -23,7 +23,7 @@ workspace/
     attachments/<checkpoint-id>/  images (png jpg gif webp avif bmp svg) and PDFs, up to 50 MB each
     proposals/*.yaml|json       changesets waiting for review
   templates/*.json              structure templates (bundle format, format: waymark-template)
-  backups/YYYY-MM-DD/*.waymark.json
+  backups/YYYY-MM-DD/*.waymark.zip   daily full backups (bundle + attachments), last 30 days
   .waymark/                     app data: history/*.jsonl, review.json, trash/, archive/, broken/
 ```
 
@@ -116,6 +116,22 @@ Encode spaces and brackets in paths (`%20`, `%28`, `%29`). The app shows images 
 PDFs in its viewer, and follows checkpoint links; other links open in a new tab. Exports embed attached
 images, so a saved web page or PDF contains them.
 
+## Maths
+
+Sections may contain LaTeX, rendered with KaTeX in the app and in PDF and web page exports:
+
+```markdown
+The norm is $\lVert x \rVert_2 = \sqrt{\sum_i x_i^2}$.
+
+$$
+\nabla f(x) = 0
+$$
+```
+
+`$…$` is inline; a `$$` block on its own lines is a display equation. Write `\$` for a literal dollar sign.
+A typo shows in red instead of breaking the page. Markdown export keeps the LaTeX as written. A web page
+downloaded from Export carries KaTeX's stylesheet and fonts inside it, so maths renders offline.
+
 ## Session notes from agents
 
 When an agent wraps up a study or brainstorming session it adds an entry to **My notes**, below the
@@ -173,6 +189,20 @@ and skipped; valid ones can be applied individually. The app's own edits use the
 Import validates every checkpoint with the same rules as files, reports what it skipped, and always
 creates a new roadmap. Templates use the same shape with `"format": "waymark-template"`.
 
+## Full backup — `.waymark.zip`
+
+A plain zip holding `roadmap.waymark.json` (the bundle above) and the roadmap's attachments at their
+usual paths:
+
+```
+roadmap.waymark.json
+attachments/<checkpoint-id>/<file>
+```
+
+Importing restores attachments only for checkpoints in the bundle, only with allowed file types and
+sizes, and only at exactly `attachments/<checkpoint-id>/<file>`. Anything else (other files, other paths,
+`..` tricks) is skipped and listed as a warning. Images and PDFs are stored uncompressed inside the zip.
+
 **Migrations:** `schemaVersion` (bundles) and `schema` (roadmap.md, changesets) name the version.
 `migrateBundle()` in `src/shared/bundle.ts` upgrades step by step (`v1 → v2 → …`); files written by a
 newer version are refused with a clear message instead of being misread.
@@ -201,8 +231,9 @@ Requests from other websites are refused (Origin and Host checks). JSON in and o
 | `GET /api/library` | `{folders, roadmaps}` for the library sidebar |
 | `POST /api/folders` · `PATCH /api/folders` · `DELETE /api/folders?path=` | create `{parent, name}`, rename `{path, name}`, delete (empty only) |
 | `POST /api/roadmaps/:id/move` | `{folder}` (`""` = top level) |
-| `GET /api/roadmaps/:id/export?format=` | `json` (backup) · `md` · `html` · `pdf` (HTML that opens the print dialog) · `opml`; options `branch=<id>`, `personal=0`, `archived=1` |
-| `POST /api/import?folder=` | a backup bundle |
+| `GET /api/roadmaps/:id/export?format=` | `zip` (full backup) · `json` (data only) · `md` · `html` · `pdf` (HTML that opens the print dialog) · `opml`; options `branch=<id>`, `personal=0`, `archived=1`; `download=1` on `html` makes a self-contained file |
+| `POST /api/import?folder=` | a `.waymark.json` bundle |
+| `POST /api/import/zip?folder=` | a `.waymark.zip` full backup as the body; returns `{roadmapId, warnings, attachments}` |
 | `POST /api/import/markdown` | `{text, title?, profile?, folder?}`: headings and lists become checkpoints |
 | `POST /api/roadmaps/:id/attachments?cp=&name=` | file bytes as the body; returns `{path, markdownPath}` |
 | `DELETE /api/roadmaps/:id/attachments?path=` | moves an attachment to Trash |

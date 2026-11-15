@@ -7,6 +7,7 @@
 @import '@fontsource/ibm-plex-mono/400.css';
 @import '@fontsource/ibm-plex-mono/500.css';
 @import '@xyflow/react/dist/style.css';
+@import 'katex/dist/katex.min.css';
 @import '@milkdown/crepe/theme/common/style.css';
 @import '@milkdown/crepe/theme/frame.css';
 
@@ -438,4 +439,18 @@ body {
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--danger) 60%, transparent);
   border-radius: 3px;
+}
+
+/* ---------- maths ---------- */
+.prose-wm .katex-display {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.prose-wm .katex {
+  font-size: 1.06em;
+}
+.prose-wm .katex-error {
+  color: var(--danger);
 }
