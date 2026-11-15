@@ -170,6 +170,7 @@ describe('bundles', () => {
     const rm = {
       meta,
       slug: 't',
+      folder: '',
       checkpoints: { a: base({ id: 'cp-a0000001', sections: { content: 'x' } }), b: base({ id: 'cp-b0000001', parent: 'cp-a0000001', status: 'complete' }) },
       layout: { schema: 'waymark-layout/1' as const, offsets: { 'cp-a0000001': { dx: 10, dy: -5 } } },
       files: {},

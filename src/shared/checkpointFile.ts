@@ -12,6 +12,8 @@
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
   ALL_SECTIONS,
+  ROADMAP_COLORS,
+  type RoadmapColor,
   SCHEMA,
   type AgentAccess,
   type Checkpoint,
@@ -49,6 +51,7 @@ const KNOWN_CP_KEYS = new Set([
 ]);
 
 const KNOWN_RM_KEYS = new Set([
+  'color',
   'schema',
   'id',
   'title',
@@ -367,6 +370,7 @@ export function parseRoadmapFile(raw: string, fallbackTitle: string): ParseResul
     profile,
     description: str(d.description).trim(),
     agentAccess: access === 'direct' ? 'direct' : 'review',
+    ...(ROADMAP_COLORS.includes(str(d.color).trim().toLowerCase() as RoadmapColor) ? { color: str(d.color).trim().toLowerCase() as RoadmapColor } : {}),
     created: str(d.created).trim() || new Date().toISOString(),
     rev: Math.max(0, Math.floor(num(d.rev) ?? 0)),
     overview: trimBlankLines(normaliseNewlines(fm.body).split('\n')),
@@ -385,6 +389,7 @@ export function serializeRoadmapFile(meta: RoadmapMeta): string {
     profile: meta.profile,
     description: meta.description ?? '',
     agentAccess: meta.agentAccess,
+    ...(meta.color ? { color: meta.color } : {}),
     created: meta.created,
   };
   if (meta.extra) for (const [k, v] of Object.entries(meta.extra)) if (!(k in fm)) fm[k] = v;

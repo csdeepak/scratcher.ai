@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { toast } from 'sonner';
 import {
+  Folder,
+  NotebookTabs,
   Bot,
   Check,
   ChevronDown,
@@ -31,7 +33,9 @@ import {
 import { getProfile } from '../../shared/profiles';
 import { computeProgress } from '../../shared/tree';
 import { computeLayout } from '../layout';
-import { downloadJson, http } from '../api';
+import { http } from '../api';
+import { roadmapColor } from '../../shared/model';
+import { COLOR_HEX, LibrarySidebar } from './Library';
 import {
   flushOutbox,
   getState,
@@ -42,6 +46,7 @@ import {
   setState,
   setTheme,
   toggleExpanded,
+  toggleLibrary,
   toggleOutline,
   undoLast,
   useStore,
@@ -59,13 +64,18 @@ export function TopBar({ onImport }: { onImport: () => void }) {
   const summaries = useStore((s) => s.summaries);
   const reviewItems = useStore((s) => s.review);
   const outlineOpen = useStore((s) => s.outlineOpen);
+  const libraryOpen = useStore((s) => s.libraryOpen);
   const detailsOpen = useStore((s) => s.detailsOpen);
   const theme = useStore((s) => s.theme);
+  const color = rm ? COLOR_HEX[roadmapColor(rm.meta)] : null;
   const reviewCount = reviewItems.items.length + reviewItems.proposals.length;
   const heldCount = reviewItems.items.filter((i) => i.kind === 'held' || i.kind === 'held-delete').length + reviewItems.proposals.length;
 
   return (
     <header className="flex h-12 flex-none items-center gap-1.5 border-b-[1.5px] border-ink/15 bg-surface px-2 sm:px-3">
+      <IconButton label={libraryOpen ? 'Hide library (all roadmaps)' : 'Show library (all roadmaps)'} active={libraryOpen} onClick={toggleLibrary}>
+        <NotebookTabs size={17} />
+      </IconButton>
       <button onClick={() => navigate({ page: 'home' })} className="flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-surface-2" aria-label="All roadmaps">
         <img src="/favicon.svg" alt="" className="size-6" />
         <span className="hidden text-[15px] font-bold tracking-[-0.01em] sm:inline">Waymark</span>
@@ -73,9 +83,25 @@ export function TopBar({ onImport }: { onImport: () => void }) {
       {rm && (
         <>
           <span className="text-faint">/</span>
+          {rm.folder &&
+            rm.folder.split('/').map((part, i, all) => (
+              <span key={i} className="hidden items-center gap-1.5 lg:flex">
+                <button
+                  className="max-w-36 truncate rounded px-1 py-1 text-[13px] text-muted hover:bg-surface-2 hover:text-fg"
+                  onClick={() => {
+                    setState({ currentFolder: all.slice(0, i + 1).join('/') });
+                    navigate({ page: 'home' });
+                  }}
+                >
+                  {part}
+                </button>
+                <span className="text-faint">/</span>
+              </span>
+            ))}
           <Menu.Root>
             <Menu.Trigger asChild>
-              <button className="flex min-w-0 max-w-[40vw] items-center gap-1 rounded-lg px-2 py-1 text-[13.5px] font-medium hover:bg-surface-2">
+              <button className="flex min-w-0 max-w-[40vw] items-center gap-1.5 rounded-lg px-2 py-1 text-[13.5px] font-medium hover:bg-surface-2">
+                <span aria-hidden className="h-4 w-1.5 flex-none rounded-sm" style={{ background: color ?? undefined }} />
                 <span className="truncate">{rm.meta.title}</span>
                 <ChevronDown size={14} className="flex-none text-faint" />
               </button>
@@ -84,8 +110,9 @@ export function TopBar({ onImport }: { onImport: () => void }) {
               <Menu.Label>Roadmaps</Menu.Label>
               {summaries.map((s) => (
                 <Menu.Item key={s.id} onSelect={() => navigate({ page: 'roadmap', id: s.id })}>
-                  <MapIcon size={14} className="text-faint" />
+                  <span aria-hidden className="h-3.5 w-1.5 flex-none rounded-sm" style={{ background: COLOR_HEX[s.color] }} />
                   <span className="truncate">{s.title}</span>
+                  {s.folder && <span className="ml-1 truncate text-[11px] text-faint">{s.folder.split('/').pop()}</span>}
                   {s.id === rm.meta.id && <Check size={14} className="ml-auto text-accent" />}
                 </Menu.Item>
               ))}
@@ -147,8 +174,8 @@ export function TopBar({ onImport }: { onImport: () => void }) {
               <Menu.Item onSelect={() => setState({ dialog: 'agent' })}>
                 <Bot size={14} /> Work with an agent
               </Menu.Item>
-              <Menu.Item onSelect={() => void downloadJson(`/api/roadmaps/${rm.meta.id}/export`, `${rm.slug}.waymark.json`).catch((e) => toast.error(e.message))}>
-                <Download size={14} /> Export roadmap
+              <Menu.Item onSelect={() => setState({ dialog: 'export', exportTarget: null })}>
+                <Download size={14} /> Export (PDF, Markdown, image…)
               </Menu.Item>
               <Menu.Item onSelect={() => setState({ dialog: 'template' })}>
                 <LayoutTemplate size={14} /> Save as template
@@ -160,7 +187,7 @@ export function TopBar({ onImport }: { onImport: () => void }) {
             <Plus size={14} /> New roadmap
           </Menu.Item>
           <Menu.Item onSelect={onImport}>
-            <Upload size={14} /> Import roadmap…
+            <Upload size={14} /> Import (backup, Markdown, OPML)…
           </Menu.Item>
           <Menu.Item
             onSelect={async () => {
@@ -237,95 +264,148 @@ function SaveIndicator() {
   );
 }
 
+// ------------------------------------------------------------------ library pane
+
+function LibraryPane() {
+  const libraryOpen = useStore((s) => s.libraryOpen);
+  const libraryDrawer = useStore((s) => s.libraryDrawer);
+  const pageMode = useStore((s) => s.pageMode);
+  const wide = useMedia('(min-width: 1024px)');
+  if (wide) {
+    return libraryOpen && !pageMode ? (
+      <aside className="w-[236px] flex-none border-r border-line bg-surface-2/60" aria-label="Library">
+        <LibrarySidebar />
+      </aside>
+    ) : null;
+  }
+  return (
+    <Drawer open={libraryDrawer} onOpenChange={(o) => setState({ libraryDrawer: o })} title="Library" side="left" width="w-[min(300px,88vw)]">
+      <LibrarySidebar onPick={() => setState({ libraryDrawer: false })} />
+    </Drawer>
+  );
+}
+
 // ------------------------------------------------------------------ home
 
 export function Home({ onImport }: { onImport: () => void }) {
   const summaries = useStore((s) => s.summaries);
+  const folders = useStore((s) => s.folders);
+  const currentFolder = useStore((s) => s.currentFolder);
   const workspace = useStore((s) => s.workspace);
   const problems = useStore((s) => s.workspaceProblems);
   const ready = useStore((s) => s.ready);
+  const inScope = (f: string) => currentFolder === null || f === currentFolder || f.startsWith(currentFolder + '/');
+  const groups = [...new Set(['', ...folders])]
+    .filter(inScope)
+    .map((f) => ({ folder: f, items: summaries.filter((r) => r.folder === f).sort((a, b) => a.title.localeCompare(b.title)) }))
+    .filter((g) => g.items.length || (g.folder && g.folder === currentFolder));
+  const heading = currentFolder ? currentFolder.split('/').pop()! : 'Your roadmaps';
   return (
-    <div className="wm-scroll min-h-0 flex-1">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
-        <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <h1 className="text-[26px] font-bold tracking-[-0.02em]">Your roadmaps</h1>
-            <p className="mt-0.5 text-[13.5px] text-muted">Each roadmap is a folder of Markdown files you own. You and your agents edit the same files.</p>
-          </div>
-          <div className="ml-auto flex gap-2">
-            <Button onClick={onImport}>
-              <Upload size={14} /> Import
-            </Button>
-            <Button variant="primary" onClick={() => setState({ dialog: 'new' })}>
-              <Plus size={14} /> New roadmap
-            </Button>
-          </div>
-        </div>
-
-        {problems.length > 0 && (
-          <div className="mt-5 rounded-xl border border-review/40 bg-warn-soft p-3 text-[12.5px]">
-            {problems.map((p) => (
-              <div key={p.file}>
-                <b>{p.file}</b>: {p.message}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {ready && summaries.length === 0 ? (
-          <div className="mt-10 rounded-2xl border border-dashed border-line-strong p-10 text-center">
-            <div className="text-[15px] font-semibold">No roadmaps yet</div>
-            <p className="mx-auto mt-1 max-w-md text-[13.5px] leading-relaxed text-muted">Create one for a goal or project, import a .waymark.json file, or ask an agent to draft one in your workspace folder.</p>
-            <div className="mt-4 flex justify-center gap-2">
+    <div className="flex min-h-0 flex-1">
+      <LibraryPane />
+      <div className="wm-scroll min-h-0 flex-1">
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-0">
+              {currentFolder && (
+                <button className="mb-1 flex items-center gap-1 text-[12.5px] text-muted hover:text-fg" onClick={() => setState({ currentFolder: currentFolder.includes('/') ? currentFolder.slice(0, currentFolder.lastIndexOf('/')) : null })}>
+                  <FolderOpen size={13} /> {currentFolder.includes('/') ? currentFolder.slice(0, currentFolder.lastIndexOf('/')).split('/').join(' / ') : 'Library'}
+                </button>
+              )}
+              <h1 className="truncate text-[26px] font-bold tracking-[-0.02em]">{heading}</h1>
+              <p className="mt-0.5 text-[13.5px] text-muted">
+                {currentFolder ? 'A folder of roadmaps. New roadmaps and imports go here.' : 'Each roadmap is a folder of Markdown files you own. You and your agents edit the same files.'}
+              </p>
+            </div>
+            <div className="ml-auto flex gap-2">
+              <Button onClick={onImport}>
+                <Upload size={14} /> Import
+              </Button>
               <Button variant="primary" onClick={() => setState({ dialog: 'new' })}>
                 <Plus size={14} /> New roadmap
               </Button>
-              <Button onClick={() => setState({ dialog: 'agent' })}>
-                <Bot size={14} /> Use an agent
-              </Button>
             </div>
           </div>
-        ) : (
-          <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {summaries.map((s) => (
-              <li key={s.id}>
-                <button
-                  onClick={() => navigate({ page: 'roadmap', id: s.id })}
-                  className="flex h-full w-full flex-col rounded-lg border-[1.5px] border-ink/25 bg-surface p-4 text-left transition-[border-color,box-shadow] hover:border-ink hover:shadow-[3px_3px_0_var(--ink)]"
-                >
-                  <div className="flex items-center gap-2 text-[11.5px] text-faint">
-                    <span>{getProfile(s.profile).label}</span>
-                    {s.updated && <span>· {relTime(s.updated)}</span>}
-                    {s.problems > 0 && (
-                      <Chip tone="warn" className="ml-auto">
-                        {s.problems} file issue{s.problems > 1 ? 's' : ''}
-                      </Chip>
-                    )}
-                  </div>
-                  <div className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em]">{s.title}</div>
-                  {s.description && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-muted">{s.description}</p>}
-                  <div className="mt-auto pt-4">
-                    <ProgressBar done={s.done} review={0} active={0} total={s.total} />
-                    <div className="mt-1.5 flex gap-3 text-[12px] text-muted">
-                      <span>
-                        {s.done} of {s.total} complete
-                      </span>
-                      {s.profile === 'learning' && <span>{s.understood} understood</span>}
-                      {s.drafts > 0 && <span className="ml-auto text-faint">{s.drafts} draft</span>}
-                    </div>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
-        <footer className="mt-10 grid gap-1 border-t border-line pt-4 text-[12px] text-faint">
-          <div className="flex items-center gap-1.5">
-            <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
-          </div>
-          <div>Backups: one export per roadmap each day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
-        </footer>
+          {problems.length > 0 && (
+            <div className="mt-5 rounded-xl border border-review/40 bg-warn-soft p-3 text-[12.5px]">
+              {problems.map((p) => (
+                <div key={p.file}>
+                  <b>{p.file}</b>: {p.message}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {ready && summaries.length === 0 && !currentFolder ? (
+            <div className="mt-10 rounded-2xl border border-dashed border-line-strong p-10 text-center">
+              <div className="text-[15px] font-semibold">No roadmaps yet</div>
+              <p className="mx-auto mt-1 max-w-md text-[13.5px] leading-relaxed text-muted">Create one for a goal or project, import a backup or a Markdown outline, or ask an agent to draft one in your workspace folder.</p>
+              <div className="mt-4 flex justify-center gap-2">
+                <Button variant="primary" onClick={() => setState({ dialog: 'new' })}>
+                  <Plus size={14} /> New roadmap
+                </Button>
+                <Button onClick={() => setState({ dialog: 'agent' })}>
+                  <Bot size={14} /> Use an agent
+                </Button>
+              </div>
+            </div>
+          ) : (
+            groups.map((g) => (
+              <section key={g.folder || '_top'} className="mt-7">
+                <h2 className="mb-2.5 flex items-center gap-1.5 text-[13px] font-semibold text-muted">
+                  {g.folder ? <Folder size={14} className="text-review" /> : null}
+                  {g.folder ? g.folder.split('/').join(' / ') : 'Top level'}
+                  <span className="font-normal text-faint">{g.items.length}</span>
+                </h2>
+                {g.items.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-line-strong p-5 text-[13px] text-muted">This folder is empty. Create a roadmap here, import one, or drag one onto the folder in the library.</div>
+                ) : (
+                  <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {g.items.map((s) => (
+                      <li key={s.id}>
+                        <button
+                          onClick={() => navigate({ page: 'roadmap', id: s.id })}
+                          className="relative flex h-full w-full flex-col overflow-hidden rounded-lg border-[1.5px] border-ink/25 bg-surface p-4 pt-5 text-left transition-[border-color,box-shadow] hover:border-ink hover:shadow-[3px_3px_0_var(--ink)]"
+                        >
+                          <span aria-hidden className="absolute inset-x-0 top-0 h-1.5" style={{ background: COLOR_HEX[s.color] }} />
+                          <div className="flex items-center gap-2 text-[11.5px] text-faint">
+                            <span>{getProfile(s.profile).label}</span>
+                            {s.updated && <span>· {relTime(s.updated)}</span>}
+                            {s.problems > 0 && (
+                              <Chip tone="warn" className="ml-auto">
+                                {s.problems} file issue{s.problems > 1 ? 's' : ''}
+                              </Chip>
+                            )}
+                          </div>
+                          <div className="mt-1 text-[15px] font-semibold leading-snug tracking-[-0.01em]">{s.title}</div>
+                          {s.description && <p className="mt-1 line-clamp-2 text-[12.5px] leading-relaxed text-muted">{s.description}</p>}
+                          <div className="mt-auto pt-4">
+                            <ProgressBar done={s.done} review={0} active={0} total={s.total} />
+                            <div className="mt-1.5 flex gap-3 text-[12px] text-muted">
+                              <span>
+                                {s.done} of {s.total} complete
+                              </span>
+                              {s.profile === 'learning' && <span>{s.understood} understood</span>}
+                              {s.drafts > 0 && <span className="ml-auto text-faint">{s.drafts} draft</span>}
+                            </div>
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            ))
+          )}
+
+          <footer className="mt-10 grid gap-1 border-t border-line pt-4 text-[12px] text-faint">
+            <div className="flex items-center gap-1.5">
+              <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
+            </div>
+            <div>Backups: one export per roadmap each day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
+          </footer>
+        </div>
       </div>
     </div>
   );
@@ -485,6 +565,7 @@ export function RoadmapView() {
 
   return (
     <div className="flex min-h-0 flex-1">
+      <LibraryPane />
       {outlineOpen && wide && !pageMode && (
         <aside className="w-[268px] flex-none border-r border-line bg-surface" aria-label="Outline">
           <Outline rm={rm} progress={progress} />

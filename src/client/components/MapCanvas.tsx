@@ -11,6 +11,7 @@ import {
   ReactFlow,
   applyNodeChanges,
   getBezierPath,
+  getNodesBounds,
   useInternalNode,
   useReactFlow,
   type Edge,
@@ -27,6 +28,8 @@ import { NODE_H, NODE_W, autoPosition, type Layout } from '../layout';
 import { getState, overview, selectCheckpoint, setExpandedAll, setFocus, setState, toggleExpanded, useStore } from '../store';
 import { addCheckpoint } from '../actions';
 import { http } from '../api';
+import { toPng } from 'html-to-image';
+import { registerMapCapture } from '../mapExport';
 import { Button, Chip, IconButton, Menu, ProgressBar, StatusIcon, Tip, UnderstandingIcon, cx } from './ui';
 
 interface NodeData extends Record<string, unknown> {
@@ -222,6 +225,35 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   );
 
   const [nodes, setNodes] = useState<CPNode[]>(derived);
+  const [capturing, setCapturing] = useState(false);
+
+  // Let the Export dialog take a picture of the whole map (all nodes, not just the visible ones).
+  useEffect(() => {
+    registerMapCapture(async () => {
+      setCapturing(true);
+      await new Promise((r) => setTimeout(r, 160));
+      try {
+        const all = flow.getNodes();
+        const b = getNodesBounds(all);
+        const pad = 48;
+        const scale = Math.min(2, 6000 / Math.max(b.width + pad * 2, b.height + pad * 2, 1));
+        const width = Math.round((b.width + pad * 2) * scale);
+        const height = Math.round((b.height + pad * 2) * scale);
+        const viewport = document.querySelector<HTMLElement>('.react-flow__viewport');
+        if (!viewport) throw new Error('The map is not on screen.');
+        return await toPng(viewport, {
+          backgroundColor: getComputedStyle(document.body).backgroundColor,
+          width,
+          height,
+          pixelRatio: 1,
+          style: { width: `${width}px`, height: `${height}px`, transform: `translate(${(pad - b.x) * scale}px, ${(pad - b.y) * scale}px) scale(${scale})` },
+        });
+      } finally {
+        setCapturing(false);
+      }
+    });
+    return () => registerMapCapture(null);
+  }, [flow]);
   useEffect(() => setNodes(derived), [derived]);
 
   const onNodesChange = useCallback((changes: NodeChange<CPNode>[]) => {
@@ -328,9 +360,36 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
     return out;
   }, [layout, selectedId, prereqMode]);
 
+  // Refit when the map's area changes size (panels opened or closed, window resized),
+  // unless you have panned or zoomed yourself since the last fit.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const userMoved = useRef(false);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let last = { w: el.clientWidth, h: el.clientHeight };
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      if (Math.abs(w - last.w) < 40 && Math.abs(h - last.h) < 40) return;
+      last = { w, h };
+      if (t) clearTimeout(t);
+      t = setTimeout(() => {
+        if (!userMoved.current) void flow.fitView({ padding: FIT_PADDING, duration: 200, maxZoom: 1.05, minZoom: 0.12 });
+      }, 120);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (t) clearTimeout(t);
+    };
+  }, [flow]);
+
   // Fit to everything (or the focused branch) on request.
   useEffect(() => {
     if (!fitRequest) return;
+    userMoved.current = false;
     const t = setTimeout(() => {
       const focusIds = focusId ? layout.nodes.filter((n) => !n.dimmed).map((n) => ({ id: n.cp.id })) : undefined;
       void flow.fitView({ padding: FIT_PADDING, duration: 320, maxZoom: 1.05, minZoom: 0.12, nodes: focusIds });
@@ -351,8 +410,11 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   }, [centerRequest, flow]);
 
   return (
-    <div className="relative h-full w-full">
+    <div ref={wrapRef} className="relative h-full w-full">
       <ReactFlow<CPNode>
+        onMoveStart={(e) => {
+          if (e) userMoved.current = true;
+        }}
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -374,7 +436,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
         fitViewOptions={{ padding: FIT_PADDING, maxZoom: 1.05 }}
         minZoom={0.1}
         maxZoom={2}
-        onlyRenderVisibleElements={nodes.length > 150}
+        onlyRenderVisibleElements={nodes.length > 150 && !capturing}
         zoomOnDoubleClick={false}
         deleteKeyCode={null}
         selectionKeyCode={null}

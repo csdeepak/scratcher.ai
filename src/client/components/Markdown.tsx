@@ -2,8 +2,9 @@ import { memo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Crepe } from '@milkdown/crepe';
-import { editorViewCtx } from '@milkdown/kit/core';
+import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { Selection } from '@milkdown/kit/prose/state';
+import { preserveFormatting } from '../../shared/preserveFormatting';
 
 /** Flip the first task checkbox at or after `offset` in the Markdown source. */
 export function toggleTaskAt(text: string, offset: number): string {
@@ -104,10 +105,15 @@ export function RichEditor({
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
       },
     });
+    // Write edited blocks in the most common Markdown style ("-" bullets and rules).
+    crepe.editor.config((ctx) => ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const, rule: '-' as const })));
+    const original = value;
     crepe.on((l) =>
       l.markdownUpdated((_ctx, md) => {
-        // Crepe writes empty paragraphs as "<br />"; keep the files clean Markdown.
-        if (interacted) onChangeRef.current(md.replace(/^<br \/>\n?/gm, ''));
+        if (!interacted) return;
+        // Crepe writes empty paragraphs as "<br />"; keep the files clean Markdown. Blocks the user
+        // didn't touch keep their original text, so an agent's formatting isn't rewritten.
+        onChangeRef.current(preserveFormatting(original, md.replace(/^<br \/>\n?/gm, '')));
       }),
     );
     let alive = true;
@@ -119,16 +125,25 @@ export function RichEditor({
         lossyRef.current?.();
       }
       if (autoFocus) {
-        // Put the caret at the end so clicking a section lets you keep writing.
-        try {
-          crepe.editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView());
-            view.focus();
-          });
-        } catch {
-          el.querySelector<HTMLElement>('.ProseMirror')?.focus();
-        }
+        // Put the caret at the end so clicking a section lets you keep writing. Code blocks and
+        // tables finish mounting a moment later and can reset the selection, so place it again
+        // then, unless the user has already started typing somewhere.
+        const caretToEnd = () => {
+          if (!alive) return;
+          try {
+            crepe.editor.action((ctx) => {
+              const view = ctx.get(editorViewCtx);
+              view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView());
+              view.focus();
+            });
+          } catch {
+            el.querySelector<HTMLElement>('.ProseMirror')?.focus();
+          }
+        };
+        caretToEnd();
+        setTimeout(() => {
+          if (!interacted) caretToEnd();
+        }, 120);
       }
     });
     return () => {

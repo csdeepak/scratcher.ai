@@ -1,0 +1,67 @@
+// Keep the original Markdown of blocks the user didn't change.
+//
+// A visual editor re-serialises the whole section on every edit, which would rewrite an agent's
+// formatting ("-" bullets → "*", line wrapping, escapes) even in paragraphs nobody touched and make
+// Review diffs, history and git noisy. After an edit we compare top-level blocks by meaning (their
+// Markdown syntax tree, ignoring style-only details) and put back the original text of every block
+// that is unchanged. Only blocks the user actually edited take the editor's formatting.
+
+import { fromMarkdown } from 'mdast-util-from-markdown';
+import { gfmFromMarkdown } from 'mdast-util-gfm';
+import { gfm } from 'micromark-extension-gfm';
+
+interface Block {
+  text: string;
+  sig: string;
+}
+
+const STYLE_ONLY = new Set(['position', 'spread', 'data']);
+const VERBATIM = new Set(['code', 'inlineCode', 'html', 'math', 'inlineMath']);
+
+/** Meaning of a node: its syntax tree without positions or presentation details. */
+function signature(node: unknown): string {
+  return JSON.stringify(node, function (this: Record<string, unknown>, key, value) {
+    if (STYLE_ONLY.has(key)) return undefined;
+    // Soft line breaks and runs of spaces don't change meaning outside code.
+    if (key === 'value' && typeof value === 'string' && !VERBATIM.has(String(this.type))) return value.replace(/\s+/g, ' ').trim();
+    return value;
+  });
+}
+
+function blocks(md: string): Block[] | null {
+  try {
+    const tree = fromMarkdown(md, { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+    return tree.children.map((node) => {
+      const start = node.position?.start.offset ?? 0;
+      const end = node.position?.end.offset ?? start;
+      return { text: md.slice(start, end), sig: signature(node) };
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return `edited`, but with every top-level block that means the same as a block in `original`
+ * replaced by the original's exact text. Blocks are matched in document order where possible.
+ */
+export function preserveFormatting(original: string, edited: string): string {
+  if (!original.trim() || !edited.trim() || original === edited) return edited;
+  const a = blocks(original);
+  const b = blocks(edited);
+  if (!a || !b || !b.length) return edited;
+  const used = new Set<number>();
+  let cursor = 0;
+  const out: string[] = [];
+  for (const nb of b) {
+    let idx = -1;
+    for (let i = cursor; i < a.length && idx === -1; i++) if (!used.has(i) && a[i]!.sig === nb.sig) idx = i;
+    for (let i = 0; i < cursor && idx === -1; i++) if (!used.has(i) && a[i]!.sig === nb.sig) idx = i;
+    if (idx >= 0) {
+      used.add(idx);
+      cursor = idx + 1;
+      out.push(a[idx]!.text);
+    } else out.push(nb.text);
+  }
+  return out.join('\n\n');
+}

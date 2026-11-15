@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Command } from 'cmdk';
 import { Dialog } from 'radix-ui';
-import { ArrowRight, Bot, Download, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, Sun } from 'lucide-react';
-import { http, downloadJson } from '../api';
+import { ArrowRight, Bot, Download, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, Sun } from 'lucide-react';
+import { http } from '../api';
 import { getState, navigate, overview, selectCheckpoint, setFocus, setState, setTheme, useStore } from '../store';
 import { addCheckpoint } from '../actions';
 import { Kbd } from './ui';
@@ -137,10 +137,13 @@ export function CommandPalette() {
                       <Bot size={14} /> Work with an agent
                     </Command.Item>
                     {rm && (
-                      <Command.Item className={item} onSelect={() => run(() => void downloadJson(`/api/roadmaps/${rm.meta.id}/export`, `${rm.slug}.waymark.json`))}>
-                        <Download size={14} /> Export this roadmap
+                      <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'export', exportTarget: null }))}>
+                        <Download size={14} /> Export this roadmap (PDF, Markdown, image…)
                       </Command.Item>
                     )}
+                    <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'import' }))}>
+                      <Upload size={14} /> Import (backup, Markdown outline, OPML)
+                    </Command.Item>
                     <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'new' }))}>
                       <Plus size={14} /> New roadmap
                     </Command.Item>

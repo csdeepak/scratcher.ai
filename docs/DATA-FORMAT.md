@@ -1,12 +1,21 @@
 # Waymark data format (schema `waymark/1`)
 
 Everything is plain text in one folder (the *workspace*). Humans, the app and agents all edit the same
-files. Identity is always the `id`, never the file name or position.
+files. Identity is always the `id`, never the file name or position, so roadmaps and folders can be moved
+or renamed in the app or in Explorer/Finder without losing anything. Folder names must be valid on
+Windows and macOS: no `< > : " / \ | ? *`, no leading dot, no trailing dot or space, no reserved names
+like `CON`.
 
 ```
 workspace/
   AGENTS.md, CLAUDE.md          instructions for agents (generated once; edit freely)
-  roadmaps/<slug>/
+  LIBRARY.md                    generated, read-only list of every folder and roadmap
+  roadmaps/                     the library: plain folders group roadmaps, up to 4 levels deep
+    Learning/                   a folder (no roadmap.md inside)
+      Semester 5/               a nested folder
+        ai-syllabus/            a roadmap = a folder that contains roadmap.md
+    <slug>/                     a roadmap at the top level
+  (inside every roadmap folder)
     roadmap.md                  settings + overview
     INDEX.md                    generated, read-only outline (ids, status, files, problems)
     layout.json                 optional manual offsets {"offsets": {"cp-…": {"dx": 40, "dy": -12}}}
@@ -27,6 +36,7 @@ title: Learn Git fundamentals
 profile: learning          # learning | general
 description: One line.
 agentAccess: review        # default for outside edits: review | direct
+color: teal                # optional library tab colour: yellow orange red pink purple blue teal green gray
 created: 2026-11-15T09:00:00.000Z
 rev: 3
 ---
@@ -161,7 +171,12 @@ Requests from other websites are refused (Origin and Host checks). JSON in and o
 | `POST /api/roadmaps/:id/ops` | `{ops: [...]}` same operations as changesets; `update` may carry `expect` for compare-and-set |
 | `PUT /api/roadmaps/:id/layout` | `{offsets}` |
 | `GET /api/roadmaps/:id/history?cp=` · `POST …/history/restore` | history, `{entryId, which: before\|after}` |
-| `GET /api/roadmaps/:id/export` · `POST /api/import` | bundles |
+| `GET /api/library` | `{folders, roadmaps}` for the library sidebar |
+| `POST /api/folders` · `PATCH /api/folders` · `DELETE /api/folders?path=` | create `{parent, name}`, rename `{path, name}`, delete (empty only) |
+| `POST /api/roadmaps/:id/move` | `{folder}` (`""` = top level) |
+| `GET /api/roadmaps/:id/export?format=` | `json` (backup) · `md` · `html` · `pdf` (HTML that opens the print dialog) · `opml`; options `branch=<id>`, `personal=0`, `archived=1` |
+| `POST /api/import?folder=` | a backup bundle |
+| `POST /api/import/markdown` | `{text, title?, profile?, folder?}`: headings and lists become checkpoints |
 | `GET /api/review` · `POST /api/review/:itemId` | `{action: keep\|revert\|apply\|discard, fields?}` |
 | `POST /api/roadmaps/:id/proposals` | paste `{text}` |
 | `POST /api/roadmaps/:id/proposals/:name/apply` · `/reject` | `{indexes}` |

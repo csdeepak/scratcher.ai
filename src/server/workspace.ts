@@ -14,6 +14,7 @@ import {
   serializeRoadmapFile,
 } from '../shared/checkpointFile';
 import {
+  roadmapColor,
   type Checkpoint,
   type FieldPath,
   type Problem,
@@ -54,6 +55,7 @@ export type WsEvent =
 
 interface Runtime {
   dir: string;
+  /** Path under roadmaps/ (posix), e.g. "Learning/ai-syllabus". Parent folders are library groups. */
   slug: string;
   meta: RoadmapMeta;
   cps: CheckpointMap;
@@ -75,6 +77,28 @@ export interface TrashEntry {
   files: Record<string, string>;
   /** set when the whole roadmap was deleted */
   roadmapDir?: string;
+  /** where the roadmap lived before deletion, for restoring into the same folder */
+  originalPath?: string;
+}
+
+export interface LibraryView {
+  folders: string[];
+  roadmaps: RoadmapSummary[];
+}
+
+const MAX_FOLDER_DEPTH = 4;
+const RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/** Folder names that work on Windows, macOS and Linux alike. Returns an error message or null. */
+export function folderNameProblem(name: string): string | null {
+  const n = name.trim();
+  if (!n) return 'Give the folder a name.';
+  if (n.length > 60) return 'Keep folder names under 60 characters.';
+  if (/[<>:"/\\|?*\u0000-\u001f]/.test(n)) return 'Folder names can\'t contain < > : " / \\ | ? *';
+  if (n.startsWith('.')) return 'Folder names can\'t start with a dot.';
+  if (/[. ]$/.test(n)) return 'Folder names can\'t end with a dot or a space.';
+  if (RESERVED_NAMES.test(n)) return 'That name is reserved by Windows.';
+  return null;
 }
 
 export interface ProposalView {
@@ -108,9 +132,12 @@ export class Workspace extends EventEmitter {
   private rts = new Map<string, Runtime>();
   private chain: Promise<unknown> = Promise.resolve();
   private watcher?: FSWatcher;
-  private pending = new Map<string, 'add' | 'change' | 'unlink'>();
+  private pending = new Map<string, 'add' | 'change' | 'unlink' | 'dir'>();
   private batchTimer?: NodeJS.Timeout;
   private indexTimers = new Map<string, NodeJS.Timeout>();
+  private libraryTimer?: NodeJS.Timeout;
+  /** Library folders (posix paths under roadmaps/) that are not roadmaps themselves. */
+  private folders = new Set<string>();
   workspaceProblems: Problem[] = [];
 
   constructor(readonly root: string) {
@@ -131,7 +158,7 @@ export class Workspace extends EventEmitter {
     await ensureDir(path.join(this.metaDir, 'trash'));
     await this.writeAgentDocs();
     await this.review.load();
-    for (const slug of await listDirs(this.roadmapsDir)) await this.loadRoadmap(slug, { reconcile: true });
+    await this.scanTree('', 0, true);
     if (this.rts.size === 0 && opts.seedExample && (await exists(opts.seedExample))) {
       const bundle = JSON.parse(await fs.readFile(opts.seedExample, 'utf8'));
       await this.importBundle(bundle, { keepIds: true });
@@ -143,6 +170,7 @@ export class Workspace extends EventEmitter {
     }
     await this.review.save();
     for (const rt of this.rts.values()) this.scheduleIndex(rt, 0);
+    this.scheduleLibrary(0);
     await this.maybeDailyBackup();
     if (opts.watch !== false) this.startWatching();
   }
@@ -151,6 +179,7 @@ export class Workspace extends EventEmitter {
     await this.watcher?.close();
     for (const t of this.indexTimers.values()) clearTimeout(t);
     if (this.batchTimer) clearTimeout(this.batchTimer);
+    if (this.libraryTimer) clearTimeout(this.libraryTimer);
     await this.chain.catch(() => {});
     await this.history.flushAll();
     await this.review.save();
@@ -163,7 +192,182 @@ export class Workspace extends EventEmitter {
   }
 
   private emitEvent(e: WsEvent) {
+    if (e.type === 'roadmaps') this.scheduleLibrary();
     this.emit('event', e);
+  }
+
+  // ---------------------------------------------------------------- library (folders)
+
+  /** Walk roadmaps/: a folder with roadmap.md is a roadmap, any other folder is a library group. */
+  private async scanTree(rel: string, depth: number, load: boolean) {
+    if (!rel) this.folders.clear();
+    for (const name of await listDirs(path.join(this.roadmapsDir, rel))) {
+      const child = rel ? `${rel}/${name}` : name;
+      if (existsSync(path.join(this.roadmapsDir, child, 'roadmap.md'))) {
+        if (load) await this.loadRoadmap(child, { reconcile: true });
+      } else if (depth < MAX_FOLDER_DEPTH) {
+        this.folders.add(child);
+        await this.scanTree(child, depth + 1, load);
+      }
+    }
+  }
+
+  private async rescanFolders() {
+    await this.scanTree('', 0, false);
+  }
+
+  /** The roadmap that contains a path under roadmaps/ (deepest match). */
+  private runtimeFor(rel: string): Runtime | undefined {
+    let best: Runtime | undefined;
+    for (const r of this.rts.values()) {
+      if ((rel === r.slug || rel.startsWith(r.slug + '/')) && (!best || r.slug.length > best.slug.length)) best = r;
+    }
+    return best;
+  }
+
+  library(): LibraryView {
+    return { folders: [...this.folders].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })), roadmaps: this.listRoadmaps() };
+  }
+
+  /** Moving folders while the watcher holds them fails on Windows, and floods events elsewhere. */
+  private async withWatcherPaused<T>(fn: () => Promise<T>): Promise<T> {
+    const was = !!this.watcher;
+    if (was) {
+      await this.watcher!.close();
+      this.watcher = undefined;
+    }
+    try {
+      return await fn();
+    } finally {
+      if (was) this.startWatching();
+    }
+  }
+
+  private checkFolder(folder: string): string {
+    const f = (folder ?? '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    if (f && !this.folders.has(f)) throw new HttpError(404, `Folder "${f}" not found.`);
+    return f;
+  }
+
+  private async nameTaken(parentRel: string, name: string): Promise<boolean> {
+    const siblings = await listDirs(path.join(this.roadmapsDir, parentRel));
+    return siblings.some((d) => d.toLowerCase() === name.toLowerCase());
+  }
+
+  async createFolder(parent: string, name: string) {
+    return this.run(async () => {
+      const p = this.checkFolder(parent);
+      const problem = folderNameProblem(name);
+      if (problem) throw new HttpError(400, problem);
+      if (p.split('/').filter(Boolean).length >= MAX_FOLDER_DEPTH) throw new HttpError(400, `Folders can be nested ${MAX_FOLDER_DEPTH} levels deep.`);
+      if (await this.nameTaken(p, name.trim())) throw new HttpError(409, 'Something with that name already exists here.');
+      const rel = p ? `${p}/${name.trim()}` : name.trim();
+      await ensureDir(path.join(this.roadmapsDir, rel));
+      this.folders.add(rel);
+      this.emitEvent({ type: 'roadmaps' });
+      return { path: rel };
+    });
+  }
+
+  async renameFolder(folder: string, newName: string) {
+    return this.run(() =>
+      this.withWatcherPaused(async () => {
+        const from = this.checkFolder(folder);
+        if (!from) throw new HttpError(400, 'Choose a folder.');
+        const problem = folderNameProblem(newName);
+        if (problem) throw new HttpError(400, problem);
+        const parent = path.posix.dirname(from) === '.' ? '' : path.posix.dirname(from);
+        const to = parent ? `${parent}/${newName.trim()}` : newName.trim();
+        if (to === from) return { path: to };
+        if (to.toLowerCase() !== from.toLowerCase() && (await this.nameTaken(parent, newName.trim()))) throw new HttpError(409, 'Something with that name already exists here.');
+        await moveDir(path.join(this.roadmapsDir, from), path.join(this.roadmapsDir, to));
+        for (const rt of this.rts.values()) {
+          if (rt.slug.startsWith(from + '/')) {
+            rt.slug = to + rt.slug.slice(from.length);
+            rt.dir = path.join(this.roadmapsDir, rt.slug);
+          }
+        }
+        await this.rescanFolders();
+        this.emitEvent({ type: 'roadmaps' });
+        return { path: to };
+      }),
+    );
+  }
+
+  async deleteFolder(folder: string) {
+    return this.run(async () => {
+      const f = this.checkFolder(folder);
+      if (!f) throw new HttpError(400, 'Choose a folder.');
+      if ([...this.rts.values()].some((r) => r.slug.startsWith(f + '/'))) throw new HttpError(409, 'Move or delete the roadmaps in this folder first.');
+      const hasFiles = async (dir: string): Promise<boolean> => {
+        for (const e of await fs.readdir(dir, { withFileTypes: true })) {
+          if (e.isFile()) return true;
+          if (e.isDirectory() && (await hasFiles(path.join(dir, e.name)))) return true;
+        }
+        return false;
+      };
+      if (await hasFiles(path.join(this.roadmapsDir, f))) throw new HttpError(409, 'This folder contains files that are not roadmaps, so Waymark will not delete it. Remove them in your file manager first.');
+      await fs.rm(path.join(this.roadmapsDir, f), { recursive: true, force: true, maxRetries: 5, retryDelay: 60 });
+      await this.rescanFolders();
+      this.emitEvent({ type: 'roadmaps' });
+    });
+  }
+
+  async moveRoadmap(id: string, folder: string) {
+    return this.run(() =>
+      this.withWatcherPaused(async () => {
+        const rt = this.rt(id);
+        const target = this.checkFolder(folder);
+        const current = path.posix.dirname(rt.slug) === '.' ? '' : path.posix.dirname(rt.slug);
+        if (current === target) return this.toRoadmap(rt);
+        const base = path.posix.basename(rt.slug);
+        let name = base;
+        for (let n = 2; existsSync(path.join(this.roadmapsDir, target, name)); n++) name = `${base}-${n}`;
+        const slug = target ? `${target}/${name}` : name;
+        await moveDir(rt.dir, path.join(this.roadmapsDir, slug));
+        rt.slug = slug;
+        rt.dir = path.join(this.roadmapsDir, slug);
+        this.scheduleIndex(rt);
+        this.emitEvent({ type: 'roadmaps' });
+        this.emitEvent({ type: 'roadmap', roadmapId: id, ids: [], source: 'app' });
+        return this.toRoadmap(rt);
+      }),
+    );
+  }
+
+  /** LIBRARY.md at the workspace root: every folder and roadmap, for agents and humans. */
+  private scheduleLibrary(delay = 400) {
+    if (this.libraryTimer) clearTimeout(this.libraryTimer);
+    const t = setTimeout(() => {
+      this.libraryTimer = undefined;
+      const lib = this.library();
+      const lines = [
+        '<!-- Generated by Waymark. Do not edit: rewritten whenever roadmaps or folders change. -->',
+        '# Library',
+        '',
+        'Every roadmap in this workspace. Folders under `roadmaps/` group roadmaps; a folder that contains',
+        '`roadmap.md` is a roadmap. Open a roadmap\'s `INDEX.md` for its checkpoints.',
+        '',
+      ];
+      const byFolder = new Map<string, RoadmapSummary[]>();
+      for (const r of lib.roadmaps) {
+        if (!byFolder.has(r.folder)) byFolder.set(r.folder, []);
+        byFolder.get(r.folder)!.push(r);
+      }
+      const line = (r: RoadmapSummary, depth: number) =>
+        `${'  '.repeat(depth)}- **${r.title}** \`${r.id}\` — roadmaps/${r.slug}/ · ${r.profile} · ${r.done}/${r.total} complete`;
+      for (const r of (byFolder.get('') ?? []).sort((a, b) => a.title.localeCompare(b.title))) lines.push(line(r, 0));
+      for (const f of lib.folders) {
+        const depth = f.split('/').length - 1;
+        lines.push(`${'  '.repeat(depth)}- 📁 ${path.posix.basename(f)}/  (roadmaps/${f}/)`);
+        for (const r of (byFolder.get(f) ?? []).sort((a, b) => a.title.localeCompare(b.title))) lines.push(line(r, depth + 1));
+      }
+      if (!lib.roadmaps.length && !lib.folders.length) lines.push('_No roadmaps yet._');
+      lines.push('');
+      void writeFileAtomic(path.join(this.root, 'LIBRARY.md'), lines.join('\n')).catch((e) => console.error('[waymark] LIBRARY.md write failed:', e));
+    }, delay);
+    t.unref?.();
+    this.libraryTimer = t;
   }
 
   private async writeAgentDocs() {
@@ -189,7 +393,9 @@ export class Workspace extends EventEmitter {
       return null;
     }
     const dup = this.rts.get(parsed.value.id);
-    if (dup && dup.slug !== slug) {
+    if (dup && dup.slug !== slug && !existsSync(path.join(dup.dir, 'roadmap.md'))) {
+      this.rts.delete(dup.meta.id); // moved outside the app: forget the old location
+    } else if (dup && dup.slug !== slug) {
       this.workspaceProblems.push({
         file: `roadmaps/${slug}/roadmap.md`,
         message: `Same roadmap id as "${dup.slug}". Copying a roadmap folder? Change the id in roadmap.md or use Export/Import.`,
@@ -321,7 +527,7 @@ export class Workspace extends EventEmitter {
       },
       awaitWriteFinish: { stabilityThreshold: 120, pollInterval: 40 },
     });
-    const queue = (kind: 'add' | 'change' | 'unlink') => (p: string) => {
+    const queue = (kind: 'add' | 'change' | 'unlink' | 'dir') => (p: string) => {
       this.pending.set(p, kind);
       if (this.batchTimer) clearTimeout(this.batchTimer);
       this.batchTimer = setTimeout(() => {
@@ -333,6 +539,8 @@ export class Workspace extends EventEmitter {
     this.watcher.on('add', queue('add'));
     this.watcher.on('change', queue('change'));
     this.watcher.on('unlink', queue('unlink'));
+    this.watcher.on('addDir', queue('dir'));
+    this.watcher.on('unlinkDir', queue('dir'));
     this.watcher.on('error', (e) => console.error('[waymark] watcher error:', e));
   }
 
@@ -343,29 +551,48 @@ export class Workspace extends EventEmitter {
     return this.run(() => this.processBatch(batch));
   }
 
-  private async processBatch(batch: Map<string, 'add' | 'change' | 'unlink'>) {
-    const bySlug = new Map<string, { rel: string; kind: 'add' | 'change' | 'unlink' }[]>();
-    for (const [abs, kind] of batch) {
-      const rel = toPosix(path.relative(this.roadmapsDir, abs));
-      const [slug, ...rest] = rel.split('/');
-      if (!slug || rest.length === 0) continue;
-      if (!bySlug.has(slug)) bySlug.set(slug, []);
-      bySlug.get(slug)!.push({ rel: rest.join('/'), kind });
-    }
+  private async processBatch(batch: Map<string, 'add' | 'change' | 'unlink' | 'dir'>) {
+    const groups = new Map<string, { rt: Runtime; events: { rel: string; kind: 'add' | 'change' | 'unlink' }[] }>();
+    const newDirs = new Set<string>();
+    let foldersDirty = false;
     let listChanged = false;
     let reviewChanged = false;
-    for (const [slug, events] of bySlug) {
-      let rt = [...this.rts.values()].find((r) => r.slug === slug);
-      if (!rt) {
-        if (events.some((e) => e.rel === 'roadmap.md' && e.kind !== 'unlink')) {
-          const loaded = await this.loadRoadmap(slug, { reconcile: false });
-          if (loaded) {
-            listChanged = true;
-            this.scheduleIndex(loaded);
-          }
-        }
+    for (const [abs, kind] of batch) {
+      const rel = toPosix(path.relative(this.roadmapsDir, abs));
+      if (!rel || rel.startsWith('..')) continue;
+      if (kind === 'dir') {
+        foldersDirty = true;
         continue;
       }
+      const rt = this.runtimeFor(rel);
+      if (!rt) {
+        if (path.posix.basename(rel) === 'roadmap.md' && kind !== 'unlink') newDirs.add(path.posix.dirname(rel));
+        continue;
+      }
+      if (!groups.has(rt.meta.id)) groups.set(rt.meta.id, { rt, events: [] });
+      groups.get(rt.meta.id)!.events.push({ rel: rel.slice(rt.slug.length + 1), kind });
+    }
+    // A roadmap whose roadmap.md is gone was deleted or moved outside the app (for example dragged
+    // into another folder in Explorer/Finder). Forget the old location instead of treating every
+    // missing file as a deletion; history keeps all content, and a move is picked up below.
+    for (const [id, g] of groups) {
+      if (!(await exists(path.join(g.rt.dir, 'roadmap.md')))) {
+        this.rts.delete(id);
+        groups.delete(id);
+        listChanged = true;
+        foldersDirty = true;
+      }
+    }
+    for (const dir of newDirs) {
+      if (dir === '.' || this.runtimeFor(`${dir}/roadmap.md`)) continue;
+      const loaded = await this.loadRoadmap(dir, { reconcile: true });
+      if (loaded) {
+        listChanged = true;
+        foldersDirty = true;
+        this.scheduleIndex(loaded);
+      }
+    }
+    for (const { rt, events } of groups.values()) {
       const changedIds = new Set<string>();
       let metaChanged = false;
       const unlinks: string[] = [];
@@ -425,6 +652,10 @@ export class Workspace extends EventEmitter {
         this.scheduleIndex(rt);
         this.emitEvent({ type: 'roadmap', roadmapId: rt.meta.id, ids: [], source: 'external' });
       }
+    }
+    if (foldersDirty) {
+      await this.rescanFolders();
+      listChanged = true;
     }
     if (reviewChanged) {
       await this.review.save();
@@ -715,6 +946,7 @@ export class Workspace extends EventEmitter {
     return {
       meta: rt.meta,
       slug: rt.slug,
+      folder: path.posix.dirname(rt.slug) === '.' ? '' : path.posix.dirname(rt.slug),
       checkpoints: rt.cps,
       layout: rt.layout,
       files: rt.files,
@@ -737,6 +969,8 @@ export class Workspace extends EventEmitter {
         return {
           id: rt.meta.id,
           slug: rt.slug,
+          folder: path.posix.dirname(rt.slug) === '.' ? '' : path.posix.dirname(rt.slug),
+          color: roadmapColor(rt.meta),
           title: rt.meta.title,
           description: rt.meta.description,
           profile: rt.meta.profile,
@@ -872,7 +1106,7 @@ export class Workspace extends EventEmitter {
     });
   }
 
-  async updateMeta(roadmapId: string, set: Partial<Pick<RoadmapMeta, 'title' | 'description' | 'overview' | 'profile' | 'agentAccess'>>, source: HistorySource = 'app') {
+  async updateMeta(roadmapId: string, set: Partial<Pick<RoadmapMeta, 'title' | 'description' | 'overview' | 'profile' | 'agentAccess' | 'color'>>, source: HistorySource = 'app') {
     return this.run(async () => {
       const rt = this.rt(roadmapId);
       const before = serializeRoadmapFile(rt.meta);
@@ -915,7 +1149,7 @@ export class Workspace extends EventEmitter {
     });
   }
 
-  async createRoadmap(input: { title: string; profile: 'general' | 'learning'; description?: string; overview?: string; template?: string }) {
+  async createRoadmap(input: { title: string; profile: 'general' | 'learning'; description?: string; overview?: string; template?: string; folder?: string; color?: RoadmapMeta['color'] }) {
     const meta: RoadmapMeta = {
       id: newId('rm'),
       title: input.title.trim() || 'Untitled roadmap',
@@ -925,7 +1159,9 @@ export class Workspace extends EventEmitter {
       created: new Date().toISOString(),
       rev: 0,
       overview: input.overview ?? '',
+      ...(input.color ? { color: input.color } : {}),
     };
+    const folder = this.checkFolder(input.folder ?? '');
     let cps: Checkpoint[] = [];
     let layout = EMPTY_LAYOUT();
     if (input.template) {
@@ -939,13 +1175,15 @@ export class Workspace extends EventEmitter {
       if (!input.overview) meta.overview = parsed.value.meta.overview;
       meta.profile = input.profile ?? parsed.value.meta.profile;
     }
-    return this.createFromParts(meta, cps, layout, 'app');
+    return this.createFromParts(meta, cps, layout, 'app', folder);
   }
 
-  private async createFromParts(meta: RoadmapMeta, cps: Checkpoint[], layout: RoadmapLayout, source: HistorySource) {
+  private async createFromParts(meta: RoadmapMeta, cps: Checkpoint[], layout: RoadmapLayout, source: HistorySource, folder = '') {
     return this.run(async () => {
-      let slug = slugify(meta.title, 'roadmap');
-      for (let n = 2; existsSync(path.join(this.roadmapsDir, slug)); n++) slug = `${slugify(meta.title, 'roadmap')}-${n}`;
+      const base = slugify(meta.title, 'roadmap');
+      const at = (name: string) => (folder ? `${folder}/${name}` : name);
+      let slug = at(base);
+      for (let n = 2; existsSync(path.join(this.roadmapsDir, slug)); n++) slug = at(`${base}-${n}`);
       while (this.rts.has(meta.id)) meta.id = newId('rm');
       const dir = path.join(this.roadmapsDir, slug);
       await ensureDir(path.join(dir, 'checkpoints'));
@@ -976,7 +1214,7 @@ export class Workspace extends EventEmitter {
     });
   }
 
-  async importBundle(data: unknown, opts: { keepIds?: boolean; titleSuffix?: string } = {}) {
+  async importBundle(data: unknown, opts: { keepIds?: boolean; titleSuffix?: string; folder?: string } = {}) {
     const parsed = parseBundle(data);
     if (!parsed.ok) throw new HttpError(400, parsed.error);
     const v = parsed.value;
@@ -986,7 +1224,7 @@ export class Workspace extends EventEmitter {
       title: v.meta.title + (opts.titleSuffix ?? ''),
       rev: 0,
     };
-    const rm = await this.createFromParts(meta, v.checkpoints, v.layout, 'import');
+    const rm = await this.createFromParts(meta, v.checkpoints, v.layout, 'import', this.checkFolder(opts.folder ?? ''));
     return { roadmap: rm, warnings: v.warnings };
   }
 
@@ -1006,11 +1244,12 @@ export class Workspace extends EventEmitter {
         count: Object.keys(rt.cps).length,
         checkpoints: [],
         files: {},
-        roadmapDir: `roadmaps/${rt.slug}-${stamp()}`,
+        roadmapDir: `roadmaps/${rt.slug.replace(/\//g, '__')}-${stamp()}`,
+        originalPath: rt.slug,
       };
       await this.history.flushAll();
       this.rts.delete(id);
-      await moveDir(rt.dir, path.join(this.metaDir, 'trash', entry.roadmapDir!));
+      await this.withWatcherPaused(() => moveDir(rt.dir, path.join(this.metaDir, 'trash', entry.roadmapDir!)));
       await writeFileAtomic(path.join(this.metaDir, 'trash', `${entry.id}.json`), JSON.stringify(entry, null, 2));
       this.review.removeForRoadmap(id);
       await this.review.save();
@@ -1060,9 +1299,13 @@ export class Workspace extends EventEmitter {
     if (entry.roadmapDir) {
       await this.run(async () => {
         const from = path.join(this.metaDir, 'trash', entry.roadmapDir!);
-        let slug = path.basename(entry.roadmapDir!).replace(/-\d{4}-\d{2}-\d{2}T[\d-]+Z$/, '');
-        for (let n = 2; existsSync(path.join(this.roadmapsDir, slug)); n++) slug = `${slug}-${n}`;
-        await moveDir(from, path.join(this.roadmapsDir, slug));
+        const original = entry.originalPath ?? path.basename(entry.roadmapDir!).replace(/-\d{4}-\d{2}-\d{2}T[\d-]+Z$/, '');
+        const parent = path.posix.dirname(original) !== '.' && this.folders.has(path.posix.dirname(original)) ? path.posix.dirname(original) : '';
+        const base = path.posix.basename(original);
+        const at = (name: string) => (parent ? `${parent}/${name}` : name);
+        let slug = at(base);
+        for (let n = 2; existsSync(path.join(this.roadmapsDir, slug)); n++) slug = at(`${base}-${n}`);
+        await this.withWatcherPaused(() => moveDir(from, path.join(this.roadmapsDir, slug)));
         await this.loadRoadmap(slug, { reconcile: true });
         await removeFile(file);
       });
@@ -1099,7 +1342,7 @@ export class Workspace extends EventEmitter {
       const rt = this.rt(roadmapId);
       const abs = path.join(rt.dir, rel);
       const broken = await readText(abs);
-      if (broken !== null) await writeFileAtomic(path.join(this.metaDir, 'broken', `${rt.slug}-${stamp()}-${path.basename(rel)}`), broken);
+      if (broken !== null) await writeFileAtomic(path.join(this.metaDir, 'broken', `${rt.slug.replace(/\//g, '__')}-${stamp()}-${path.basename(rel)}`), broken);
       if (rel === 'roadmap.md') await this.writeMeta(rt);
       else if (rel === 'layout.json') await this.setLayoutUnlocked(rt);
       else {

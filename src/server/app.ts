@@ -10,6 +10,10 @@ import { buildBrief } from './brief';
 import { parseCheckpoint } from '../shared/checkpointFile';
 import { getProfile } from '../shared/profiles';
 import type { FieldPath } from '../shared/model';
+import path from 'node:path';
+import { slugify } from '../shared/ids';
+import { toHtml, toMarkdown, toOpml } from '../shared/exporters';
+import { fromOutline, outlineFromMarkdown } from '../shared/outlineImport';
 
 export function createApp(ws: Workspace) {
   const app = new Hono();
@@ -56,6 +60,29 @@ export function createApp(ws: Workspace) {
 
   app.get('/api/roadmaps', (c) => c.json(ws.listRoadmaps()));
 
+  // Library: folders that group roadmaps (real folders under roadmaps/)
+  app.get('/api/library', (c) => c.json(ws.library()));
+
+  app.post('/api/folders', async (c) => {
+    const b = await body(c, z.object({ parent: z.string().default(''), name: z.string() }));
+    return c.json(await ws.createFolder(b.parent, b.name), 201);
+  });
+
+  app.patch('/api/folders', async (c) => {
+    const b = await body(c, z.object({ path: z.string().min(1), name: z.string() }));
+    return c.json(await ws.renameFolder(b.path, b.name));
+  });
+
+  app.delete('/api/folders', async (c) => {
+    await ws.deleteFolder(c.req.query('path') ?? '');
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/roadmaps/:id/move', async (c) => {
+    const b = await body(c, z.object({ folder: z.string().default('') }));
+    return c.json(await ws.moveRoadmap(c.req.param('id'), b.folder));
+  });
+
   app.post('/api/roadmaps', async (c) => {
     const b = await body(
       c,
@@ -65,6 +92,8 @@ export function createApp(ws: Workspace) {
         description: z.string().optional(),
         overview: z.string().optional(),
         template: z.string().optional(),
+        folder: z.string().optional(),
+        color: z.enum(['yellow', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'gray']).optional(),
       }),
     );
     const rm = await ws.createRoadmap(b);
@@ -82,6 +111,7 @@ export function createApp(ws: Workspace) {
         overview: z.string().optional(),
         profile: z.enum(['general', 'learning']).optional(),
         agentAccess: z.enum(['review', 'direct']).optional(),
+        color: z.enum(['yellow', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'gray']).optional(),
       }),
     );
     return c.json(await ws.updateMeta(c.req.param('id'), b));
@@ -120,11 +150,33 @@ export function createApp(ws: Workspace) {
     return c.json({ ok: true });
   });
 
+  // Export: format = json (backup) | md | html (print → PDF) | opml
   app.get('/api/roadmaps/:id/export', (c) => {
-    const bundle = ws.exportRoadmap(c.req.param('id'));
-    const name = `${ws.getRoadmap(c.req.param('id')).slug}.waymark.json`;
-    c.header('Content-Disposition', `attachment; filename="${name}"`);
-    return c.json(bundle);
+    const id = c.req.param('id');
+    const rm = ws.getRoadmap(id);
+    const format = (c.req.query('format') ?? 'json').toLowerCase();
+    const branch = c.req.query('branch') || null;
+    const opts = { branch, personal: c.req.query('personal') !== '0', archived: c.req.query('archived') === '1' };
+    const base = (branch && rm.checkpoints[branch] ? `${path.posix.basename(rm.slug)}-${slugify(rm.checkpoints[branch]!.title)}` : path.posix.basename(rm.slug)) || 'roadmap';
+    const attach = (ext: string) => c.header('Content-Disposition', `attachment; filename="${base}.${ext}"`);
+    switch (format) {
+      case 'json':
+        attach('waymark.json');
+        return c.json(ws.exportRoadmap(id));
+      case 'md':
+      case 'markdown':
+        attach('md');
+        return c.body(toMarkdown(rm, opts), 200, { 'Content-Type': 'text/markdown; charset=utf-8' });
+      case 'opml':
+        attach('opml');
+        return c.body(toOpml(rm, opts), 200, { 'Content-Type': 'text/x-opml; charset=utf-8' });
+      case 'html':
+      case 'pdf':
+        if (c.req.query('download') === '1') attach('html');
+        return c.html(toHtml(rm, { ...opts, print: format === 'pdf' || c.req.query('print') === '1' }));
+      default:
+        throw new HttpError(400, `Unknown export format "${format}". Use json, md, html, pdf or opml.`);
+    }
   });
 
   app.post('/api/import', async (c) => {
@@ -134,8 +186,18 @@ export function createApp(ws: Workspace) {
     } catch {
       throw new HttpError(400, 'That file is not valid JSON.');
     }
-    const res = await ws.importBundle(data);
+    const res = await ws.importBundle(data, { folder: c.req.query('folder') ?? '' });
     return c.json({ roadmapId: res.roadmap.meta.id, warnings: res.warnings }, 201);
+  });
+
+  // Import an outline written in Markdown (headings and lists become checkpoints)
+  app.post('/api/import/markdown', async (c) => {
+    const b = await body(c, z.object({ text: z.string().min(1), title: z.string().optional(), profile: z.enum(['general', 'learning']).default('learning'), folder: z.string().default('') }));
+    const outline = outlineFromMarkdown(b.text);
+    if (!outline.items.length) throw new HttpError(400, 'No headings or lists found. Use # headings or - bullet lists for the checkpoints.');
+    const bundle = fromOutline({ title: b.title?.trim() || outline.title || 'Imported roadmap', overview: outline.overview, profile: b.profile, items: outline.items });
+    const res = await ws.importBundle(bundle, { folder: b.folder });
+    return c.json({ roadmapId: res.roadmap.meta.id, warnings: res.warnings, count: bundle.checkpoints.length }, 201);
   });
 
   app.post('/api/roadmaps/:id/template', async (c) => {

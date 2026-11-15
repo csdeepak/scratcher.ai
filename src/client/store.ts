@@ -13,7 +13,7 @@ import { ApiError, http, subscribe, type ServerEvent } from './api';
 
 export type Route = { page: 'home' } | { page: 'roadmap'; id: string; cp?: string };
 export type SaveState = 'saved' | 'saving' | 'offline' | 'error';
-export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template';
+export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template' | 'export' | 'import';
 
 interface OutboxEntry {
   key: string;
@@ -44,6 +44,14 @@ interface State {
   ready: boolean;
   workspace: string;
   summaries: RoadmapSummary[];
+  /** Library folders (paths under roadmaps/) */
+  folders: string[];
+  /** Folder selected in the library: new roadmaps go here; the home page shows it. null = everything. */
+  currentFolder: string | null;
+  libraryOpen: boolean;
+  libraryDrawer: boolean;
+  /** Roadmap the Export dialog is for (defaults to the open one). */
+  exportTarget: string | null;
   workspaceProblems: Problem[];
   connected: boolean;
   route: Route;
@@ -103,6 +111,17 @@ export const useStore = create<State>(() => ({
   ready: false,
   workspace: '',
   summaries: [],
+  folders: [],
+  currentFolder: null,
+  libraryOpen: (() => {
+    try {
+      return localStorage.getItem('waymark.libraryOpen') !== '0';
+    } catch {
+      return true;
+    }
+  })(),
+  libraryDrawer: false,
+  exportTarget: null,
   workspaceProblems: [],
   connected: true,
   route: parseRoute(),
@@ -157,6 +176,7 @@ export async function initApp() {
   try {
     const state = await http.get<{ workspace: string; roadmaps: RoadmapSummary[]; problems: Problem[] }>('/api/state');
     set({ workspace: state.workspace, summaries: state.roadmaps, workspaceProblems: state.problems });
+    await refreshLibrary();
   } catch (e) {
     set({ connected: false });
     toast.error((e as Error).message);
@@ -178,10 +198,32 @@ function onServerEvent(e: ServerEvent) {
   }
 }
 
+export async function refreshLibrary() {
+  try {
+    const lib = await http.get<{ folders: string[]; roadmaps: RoadmapSummary[] }>('/api/library');
+    const cur = get().currentFolder;
+    set({ folders: lib.folders, summaries: lib.roadmaps, ...(cur && !lib.folders.includes(cur) ? { currentFolder: null } : {}) });
+  } catch {
+    /* offline indicator covers this */
+  }
+}
+
+export function toggleLibrary() {
+  if (window.innerWidth < 1024) return set({ libraryDrawer: !get().libraryDrawer });
+  const v = !get().libraryOpen;
+  set({ libraryOpen: v });
+  try {
+    localStorage.setItem('waymark.libraryOpen', v ? '1' : '0');
+  } catch {
+    /* fine */
+  }
+}
+
 export async function refreshSummaries() {
   try {
     const s = await http.get<{ roadmaps: RoadmapSummary[]; problems: Problem[]; workspace: string }>('/api/state');
     set({ summaries: s.roadmaps, workspaceProblems: s.problems, workspace: s.workspace });
+    await refreshLibrary();
   } catch {
     /* offline indicator covers this */
   }

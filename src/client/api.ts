@@ -51,9 +51,13 @@ export function subscribe(onEvent: (e: ServerEvent) => void, onStatus: (connecte
   let es: EventSource | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
+  let delay = 2000; // grows to 30 s while the server is down, so a stopped server isn't hammered
   const open = () => {
     es = new EventSource('/api/events');
-    es.addEventListener('hello', () => onStatus(true));
+    es.addEventListener('hello', () => {
+      delay = 2000;
+      onStatus(true);
+    });
     for (const type of ['roadmap', 'roadmaps', 'review'] as const) {
       es.addEventListener(type, (ev) => {
         try {
@@ -65,9 +69,12 @@ export function subscribe(onEvent: (e: ServerEvent) => void, onStatus: (connecte
     }
     es.onerror = () => {
       onStatus(false);
-      if (es?.readyState === EventSource.CLOSED && !closed) {
-        es.close();
-        retry = setTimeout(open, 2000);
+      // Take over reconnecting from the browser so the delay can back off.
+      if (!closed) {
+        es?.close();
+        if (retry) clearTimeout(retry);
+        retry = setTimeout(open, delay);
+        delay = Math.min(delay * 2, 30_000);
       }
     };
   };

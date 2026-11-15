@@ -1,7 +1,7 @@
 // Instructions written into the workspace for any AI agent that edits it.
 // Bump AGENTS_VERSION_MARK when the text changes; untouched older copies are upgraded.
 
-export const AGENTS_VERSION_MARK = '<!-- waymark:agents v1 -->';
+export const AGENTS_VERSION_MARK = '<!-- waymark:agents v2 -->';
 
 export const CLAUDE_MD = `# Claude instructions for this folder
 
@@ -20,17 +20,22 @@ reviews, edits and decides.** Your edits never count as the human learning or fi
 ## Layout
 
 \`\`\`
-roadmaps/<roadmap>/roadmap.md         settings (front matter) + overview/goal (body)
-roadmaps/<roadmap>/INDEX.md           GENERATED outline: ids, status, files, problems. Read it first. Never edit it.
-roadmaps/<roadmap>/checkpoints/*.md   one file per checkpoint (the file name doesn't matter; the id does)
-roadmaps/<roadmap>/proposals/         write changesets here for moves, deletions and big reorganisations
-roadmaps/<roadmap>/layout.json        optional manual position offsets (usually leave alone)
+LIBRARY.md                            GENERATED list of every folder and roadmap with ids and paths. Never edit it.
+roadmaps/                             the library. Folders group roadmaps (up to 4 levels, e.g. "Learning/Semester 5").
+                                      A folder that contains roadmap.md is a roadmap; any other folder is a group.
+<roadmap>/roadmap.md                  settings (front matter) + overview/goal (body)
+<roadmap>/INDEX.md                    GENERATED outline: ids, status, files, problems. Read it first. Never edit it.
+<roadmap>/checkpoints/*.md            one file per checkpoint (the file name doesn't matter; the id does)
+<roadmap>/proposals/                  write changesets here for moves, deletions and big reorganisations
+<roadmap>/layout.json                 optional manual position offsets (usually leave alone)
 templates/  backups/  .waymark/       app data: don't edit
 \`\`\`
 
+\`<roadmap>\` means the roadmap's folder, e.g. \`roadmaps/Learning/ai-syllabus\`. Find roadmaps in LIBRARY.md.
+
 ## Start every task like this
 
-1. Read \`roadmaps/<roadmap>/INDEX.md\`. It lists every checkpoint with its id, status and file, plus
+1. Find the roadmap in \`LIBRARY.md\`, then read its \`INDEX.md\`. It lists every checkpoint with its id, status and file, plus
    **Needs attention** (broken files, changes that were held, proposals waiting).
 2. Read \`roadmap.md\` for the goal, and the checkpoint files you'll touch. Read them fresh: the human may
    have edited them since you last looked.
@@ -106,7 +111,12 @@ for the roadmap's profile.
 
 ## Common tasks
 
-**Draft a new roadmap.** Create \`roadmaps/<slug>/roadmap.md\`:
+**Organise roadmaps into folders.** Folders are ordinary folders under \`roadmaps/\`. Create one when the
+human asks (e.g. \`roadmaps/Learning/\`). Moving a whole roadmap folder into another folder is safe: the app
+follows it. Never move checkpoint files between roadmaps. Folder names must work on Windows and macOS:
+no \`< > : " / \\ | ? *\`, no leading dot, no trailing dot or space.
+
+**Draft a new roadmap.** Create \`roadmaps/<folder>/<slug>/roadmap.md\` (or \`roadmaps/<slug>/\` for the top level):
 
 \`\`\`markdown
 ---
@@ -116,6 +126,7 @@ title: Learn X
 profile: learning        # or general
 description: One line.
 agentAccess: review
+color: blue              # optional tab colour: yellow orange red pink purple blue teal green gray
 created: 2026-01-01T00:00:00.000Z
 rev: 0
 ---

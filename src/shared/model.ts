@@ -83,7 +83,20 @@ export interface RoadmapMeta {
   rev: number;
   /** Overview / goal written for both you and the agent (Markdown). */
   overview: string;
+  /** Tab colour in the library (like a notebook section colour). */
+  color?: RoadmapColor;
   extra?: Record<string, unknown>;
+}
+
+export const ROADMAP_COLORS = ['yellow', 'orange', 'red', 'pink', 'purple', 'blue', 'teal', 'green', 'gray'] as const;
+export type RoadmapColor = (typeof ROADMAP_COLORS)[number];
+
+/** Colour used when a roadmap has none set: stable per roadmap id. */
+export function roadmapColor(meta: { id: string; color?: RoadmapColor }): RoadmapColor {
+  if (meta.color) return meta.color;
+  let h = 0;
+  for (let i = 0; i < meta.id.length; i++) h = (h * 31 + meta.id.charCodeAt(i)) >>> 0;
+  return ROADMAP_COLORS[h % (ROADMAP_COLORS.length - 1)]!;
 }
 
 export interface LayoutOffsets {
@@ -98,7 +111,10 @@ export interface RoadmapLayout {
 /** A complete roadmap as held in memory and sent to the UI. */
 export interface Roadmap {
   meta: RoadmapMeta;
+  /** Folder path under roadmaps/, e.g. "Learning/ai-syllabus". Folders above the roadmap are groups. */
   slug: string;
+  /** Library folder holding this roadmap ("" = top level), e.g. "Learning". */
+  folder: string;
   checkpoints: Record<string, Checkpoint>;
   layout: RoadmapLayout;
   /** checkpoint id -> file path relative to the roadmap folder */
@@ -115,6 +131,8 @@ export interface Problem {
 export interface RoadmapSummary {
   id: string;
   slug: string;
+  folder: string;
+  color: RoadmapColor;
   title: string;
   description: string;
   profile: ProfileKey;

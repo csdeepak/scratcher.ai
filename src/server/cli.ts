@@ -34,15 +34,23 @@ if (!existsSync(roadmapsDir)) {
 }
 
 const rmIds = new Map<string, string>();
-for (const slug of readdirSync(roadmapsDir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.')).map((d) => d.name)) {
+// Folders group roadmaps; a folder that contains roadmap.md is a roadmap (same rule as the app).
+const roadmapDirs: string[] = [];
+const walk = (rel: string, depth: number) => {
+  for (const d of readdirSync(path.join(roadmapsDir, rel), { withFileTypes: true })) {
+    if (!d.isDirectory() || d.name.startsWith('.')) continue;
+    const child = rel ? `${rel}/${d.name}` : d.name;
+    if (existsSync(path.join(roadmapsDir, child, 'roadmap.md'))) roadmapDirs.push(child);
+    else if (depth < 4) walk(child, depth + 1);
+    else warn(`roadmaps/${child}`, 'folders deeper than 4 levels are ignored');
+  }
+};
+walk('', 0);
+for (const slug of roadmapDirs) {
   const dir = path.join(roadmapsDir, slug);
   const rel = (f: string) => `roadmaps/${slug}/${f}`;
   console.log(`\n${slug}`);
   const metaPath = path.join(dir, 'roadmap.md');
-  if (!existsSync(metaPath)) {
-    err(rel('roadmap.md'), 'missing');
-    continue;
-  }
   const meta = parseRoadmapFile(readFileSync(metaPath, 'utf8'), slug);
   if (!meta.ok) {
     err(rel('roadmap.md'), meta.error);

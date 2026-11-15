@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "serve"],
       "port": 4317
+    },
+    {
+      "name": "waymark-test",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "serve", "--", "--port", "4318", "--workspace", ".waymark-test"],
+      "port": 4318
     }
   ]
 }

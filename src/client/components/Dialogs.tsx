@@ -3,7 +3,9 @@ import { toast } from 'sonner';
 import { Bot, Copy, FolderOpen, Terminal, Trash } from 'lucide-react';
 import { PROFILES } from '../../shared/profiles';
 import { http } from '../api';
-import { getState, navigate, refreshSummaries, setState, useStore } from '../store';
+import { getState, navigate, refreshLibrary, refreshSummaries, setState, useStore } from '../store';
+import { roadmapColor, type RoadmapColor } from '../../shared/model';
+import { ColorSwatches } from './Library';
 import { Button, Chip, Kbd, Modal, cx, relTime } from './ui';
 
 const input = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-[13.5px] outline-none focus:border-accent';
@@ -30,14 +32,23 @@ function NewRoadmapDialog() {
   const [profile, setProfile] = useState<'general' | 'learning'>('learning');
   const [description, setDescription] = useState('');
   const [template, setTemplate] = useState('');
+  const folders = useStore((s) => s.folders);
+  const currentFolder = useStore((s) => s.currentFolder);
+  const [folder, setFolder] = useState('');
+  const [color, setColor] = useState<RoadmapColor | undefined>(undefined);
   const [templates, setTemplates] = useState<{ file: string; title: string; profile: string; count: number; description: string }[]>([]);
   useEffect(() => {
-    if (open) void http.get<typeof templates>('/api/templates').then(setTemplates).catch(() => {});
-  }, [open]);
+    if (open) {
+      void http.get<typeof templates>('/api/templates').then(setTemplates).catch(() => {});
+      setFolder(currentFolder ?? '');
+    }
+  }, [open, currentFolder]);
   const create = async () => {
     if (!title.trim()) return;
     try {
-      const rm = await http.post<{ meta: { id: string } }>('/api/roadmaps', { title, profile, description, template: template || undefined });
+      const rm = await http.post<{ meta: { id: string } }>('/api/roadmaps', { title, profile, description, template: template || undefined, folder, color });
+      await refreshLibrary();
+      setColor(undefined);
       close();
       setTitle('');
       setDescription('');
@@ -95,6 +106,25 @@ function NewRoadmapDialog() {
             ))}
           </div>
         </fieldset>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={label} htmlFor="nr-folder">
+              Folder
+            </label>
+            <select id="nr-folder" className={input} value={folder} onChange={(e) => setFolder(e.target.value)}>
+              <option value="">Top level</option>
+              {folders.map((f) => (
+                <option key={f} value={f}>
+                  {f.split('/').join(' › ')}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <span className={label}>Colour</span>
+            <ColorSwatches value={color} onPick={setColor} />
+          </div>
+        </div>
         {templates.length > 0 && (
           <div>
             <label className={label} htmlFor="nr-tpl">
@@ -120,14 +150,23 @@ function SettingsDialog() {
   const open = useStore((s) => s.dialog === 'settings');
   const rm = useStore((s) => s.roadmap);
   const [form, setForm] = useState({ title: '', description: '', profile: 'general', agentAccess: 'review' });
+  const [color, setColor] = useState<RoadmapColor | undefined>(undefined);
+  const [folder, setFolder] = useState('');
+  const folders = useStore((s) => s.folders);
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
-    if (open && rm) setForm({ title: rm.meta.title, description: rm.meta.description, profile: rm.meta.profile, agentAccess: rm.meta.agentAccess });
+    if (open && rm) {
+      setForm({ title: rm.meta.title, description: rm.meta.description, profile: rm.meta.profile, agentAccess: rm.meta.agentAccess });
+      setColor(roadmapColor(rm.meta));
+      setFolder(rm.folder);
+    }
   }, [open, rm]);
   if (!rm) return null;
   const save = async () => {
     try {
-      await http.patch(`/api/roadmaps/${rm.meta.id}`, form);
+      await http.patch(`/api/roadmaps/${rm.meta.id}`, { ...form, color });
+      if (folder !== rm.folder) await http.post(`/api/roadmaps/${rm.meta.id}/move`, { folder });
+      await refreshLibrary();
       close();
     } catch (e) {
       toast.error((e as Error).message);
@@ -196,8 +235,27 @@ function SettingsDialog() {
           </select>
           <p className="mt-1 text-[12px] text-muted">Your notes, progress and approved content are always protected. You can override this per branch from a checkpoint's ⋯ menu.</p>
         </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={label} htmlFor="st-folder">
+              Folder
+            </label>
+            <select id="st-folder" className={input} value={folder} onChange={(e) => setFolder(e.target.value)}>
+              <option value="">Top level</option>
+              {folders.map((f) => (
+                <option key={f} value={f}>
+                  {f.split('/').join(' › ')}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <span className={label}>Colour</span>
+            <ColorSwatches value={color} onPick={setColor} />
+          </div>
+        </div>
         <div className="rounded-lg bg-surface-2 p-3 text-[12px] text-muted">
-          Folder: <code className="font-mono">roadmaps/{rm.slug}</code> · id <code className="font-mono">{rm.meta.id}</code>
+          Files: <code className="font-mono">roadmaps/{rm.slug}</code> · id <code className="font-mono">{rm.meta.id}</code>
         </div>
       </div>
       <Modal
