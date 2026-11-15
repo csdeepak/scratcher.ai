@@ -9,7 +9,9 @@ import { opSchema, formatZodError, type AnyOp } from '../shared/ops';
 import { buildBrief } from './brief';
 import { parseCheckpoint } from '../shared/checkpointFile';
 import { getProfile } from '../shared/profiles';
-import type { FieldPath } from '../shared/model';
+import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, type FieldPath } from '../shared/model';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { slugify } from '../shared/ids';
 import { toHtml, toMarkdown, toOpml } from '../shared/exporters';
@@ -173,7 +175,7 @@ export function createApp(ws: Workspace) {
       case 'html':
       case 'pdf':
         if (c.req.query('download') === '1') attach('html');
-        return c.html(toHtml(rm, { ...opts, print: format === 'pdf' || c.req.query('print') === '1' }));
+        return c.html(toHtml(rm, { ...opts, print: format === 'pdf' || c.req.query('print') === '1', asset: (rel) => ws.exportAsset(id, rel) }));
       default:
         throw new HttpError(400, `Unknown export format "${format}". Use json, md, html, pdf or opml.`);
     }
@@ -249,6 +251,54 @@ export function createApp(ws: Workspace) {
     const b = await body(c, z.object({ text: z.string() }));
     const r = parseCheckpoint(b.text, getProfile(ws.getRoadmap(c.req.param('id')).meta.profile));
     return c.json(r.ok ? { ok: true, warnings: r.warnings } : r);
+  });
+
+  // Attachments: images and PDFs stored in <roadmap>/attachments/<checkpoint-id>/
+  app.post('/api/roadmaps/:id/attachments', async (c) => {
+    const cp = c.req.query('cp') ?? '';
+    const name = c.req.query('name') ?? 'file';
+    const declared = Number(c.req.header('content-length') ?? 0);
+    if (declared > MAX_ATTACHMENT_BYTES) throw new HttpError(413, `Files up to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB can be attached.`);
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    return c.json(await ws.addAttachment(c.req.param('id'), cp, name, data), 201);
+  });
+
+  app.delete('/api/roadmaps/:id/attachments', async (c) => c.json(await ws.removeAttachment(c.req.param('id'), c.req.query('path') ?? '')));
+
+  app.get('/api/roadmaps/:id/files/*', async (c) => {
+    const id = c.req.param('id');
+    const rel = decodeURIComponent(c.req.path.split(`/api/roadmaps/${id}/files/`)[1] ?? '');
+    const file = ws.attachmentFile(id, rel);
+    let data: Buffer;
+    try {
+      data = await readFile(file);
+    } catch {
+      throw new HttpError(404, 'File not found.');
+    }
+    const ext = file.split('.').pop()?.toLowerCase() ?? '';
+    const headers: Record<string, string> = {
+      'Content-Type': ATTACHMENT_TYPES[ext]?.mime ?? 'application/octet-stream',
+      'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Disposition': `${c.req.query('download') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(path.basename(file))}`,
+    };
+    // SVG (and anything unknown) can carry scripts: never let it run in Waymark's origin.
+    if (ext === 'svg' || !ATTACHMENT_TYPES[ext]) headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
+    return c.body(new Uint8Array(data), 200, headers);
+  });
+
+  // pdf.js data (fonts, character maps, decoders), served locally so PDFs render offline.
+  const pdfjsRoot = path.dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+  app.get('/api/pdfjs/:kind/:file', async (c) => {
+    const kind = c.req.param('kind');
+    const name = path.basename(c.req.param('file'));
+    if (!['cmaps', 'standard_fonts', 'wasm', 'iccs'].includes(kind)) throw new HttpError(404, 'Not found.');
+    try {
+      const data = await readFile(path.join(pdfjsRoot, kind, name));
+      return c.body(new Uint8Array(data), 200, { 'Cache-Control': 'public, max-age=604800', 'Content-Type': name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream' });
+    } catch {
+      throw new HttpError(404, 'Not found.');
+    }
   });
 
   // Trash

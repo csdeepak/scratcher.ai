@@ -3,7 +3,7 @@
 // It is the single writer for app edits; all mutations run one at a time.
 
 import { EventEmitter } from 'node:events';
-import { existsSync, readdirSync, promises as fs } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -15,6 +15,9 @@ import {
 } from '../shared/checkpointFile';
 import {
   roadmapColor,
+  ATTACHMENT_TYPES,
+  MAX_ATTACHMENT_BYTES,
+  type Attachment,
   type Checkpoint,
   type FieldPath,
   type Problem,
@@ -24,8 +27,8 @@ import {
   type RoadmapSummary,
 } from '../shared/model';
 import { getProfile, normaliseStatus } from '../shared/profiles';
-import { diffCheckpoints, fieldEquals, getField, hasHumanContent, isHumanField, setField, clone } from '../shared/fields';
-import { applyOps, parseChangeset, settableToFields, type AnyOp, type Changeset, type OpResult, type OpSource } from '../shared/ops';
+import { APPENDABLE_FIELDS, diffCheckpoints, fieldEquals, fieldLabel, getField, hasHumanContent, isHumanField, setField, clone } from '../shared/fields';
+import { appendText, applyOps, normaliseSections, parseChangeset, settableToFields, type AnyOp, type Changeset, type OpResult, type OpSource } from '../shared/ops';
 import { deletionNeedsReview, guardExternalEdit, guardNewCheckpoint, type HeldChange } from '../shared/guard';
 import { hashText, isValidId, newId, slugify } from '../shared/ids';
 import { childrenIndex, compareSiblings, computeProgress, descendants, effectiveAccess, type CheckpointMap } from '../shared/tree';
@@ -38,6 +41,8 @@ import {
   listDirs,
   listFiles,
   moveDir,
+  moveFile,
+  writeBinaryAtomic,
   readText,
   removeFile,
   stamp,
@@ -64,6 +69,7 @@ interface Runtime {
   hashes: Map<string, string>;
   problems: Map<string, Problem>;
   layout: RoadmapLayout;
+  attachments: Record<string, Attachment[]>;
 }
 
 export interface TrashEntry {
@@ -77,6 +83,8 @@ export interface TrashEntry {
   files: Record<string, string>;
   /** set when the whole roadmap was deleted */
   roadmapDir?: string;
+  /** set when a single attached file was deleted: where it lived inside the roadmap folder */
+  attachment?: { path: string; stored: string };
   /** where the roadmap lived before deletion, for restoring into the same folder */
   originalPath?: string;
 }
@@ -413,8 +421,10 @@ export class Workspace extends EventEmitter {
       hashes: new Map([['roadmap.md', hashText(text)]]),
       problems: new Map(),
       layout: EMPTY_LAYOUT(),
+      attachments: {},
     };
     await this.readLayout(rt);
+    await this.scanAttachments(rt);
     this.rts.set(rt.meta.id, rt);
 
     const historyEntries = opts.reconcile ? await this.history.read(rt.meta.id) : [];
@@ -595,6 +605,7 @@ export class Workspace extends EventEmitter {
     for (const { rt, events } of groups.values()) {
       const changedIds = new Set<string>();
       let metaChanged = false;
+      let attachmentsChanged = false;
       const unlinks: string[] = [];
       for (const ev of events) {
         if (ev.kind === 'unlink') {
@@ -615,6 +626,8 @@ export class Workspace extends EventEmitter {
           }
         } else if (/^checkpoints\/[^/]+\.md$/.test(ev.rel)) {
           for (const id of await this.ingestCheckpointText(rt, ev.rel, text, { review: true })) changedIds.add(id);
+        } else if (ev.rel.startsWith('attachments/')) {
+          attachmentsChanged = true;
         } else if (ev.rel.startsWith('proposals/')) {
           reviewChanged = true;
         }
@@ -627,6 +640,10 @@ export class Workspace extends EventEmitter {
             listChanged = true;
           }
           break;
+        }
+        if (rel.startsWith('attachments/')) {
+          attachmentsChanged = true;
+          continue;
         }
         if (rel.startsWith('proposals/')) {
           reviewChanged = true;
@@ -642,6 +659,10 @@ export class Workspace extends EventEmitter {
         }
         await this.handleExternalDelete(rt, rel, id);
         changedIds.add(id);
+      }
+      if (attachmentsChanged) {
+        await this.scanAttachments(rt);
+        this.emitEvent({ type: 'roadmap', roadmapId: rt.meta.id, ids: [], source: 'external' });
       }
       if (changedIds.size || metaChanged) {
         reviewChanged = true;
@@ -950,6 +971,7 @@ export class Workspace extends EventEmitter {
       checkpoints: rt.cps,
       layout: rt.layout,
       files: rt.files,
+      attachments: rt.attachments,
       problems: [...rt.problems.values()],
     };
   }
@@ -1188,7 +1210,7 @@ export class Workspace extends EventEmitter {
       const dir = path.join(this.roadmapsDir, slug);
       await ensureDir(path.join(dir, 'checkpoints'));
       await ensureDir(path.join(dir, 'proposals'));
-      const rt: Runtime = { dir, slug, meta, cps: {}, files: {}, fileIds: new Map(), hashes: new Map(), problems: new Map(), layout };
+      const rt: Runtime = { dir, slug, meta, cps: {}, files: {}, fileIds: new Map(), hashes: new Map(), problems: new Map(), layout, attachments: {} };
       this.rts.set(meta.id, rt);
       const metaText = await this.writeMeta(rt);
       this.recordMeta(rt, null, metaText, source);
@@ -1296,6 +1318,20 @@ export class Workspace extends EventEmitter {
     const text = await readText(file);
     if (!text) throw new HttpError(404, 'Trash item not found.');
     const entry = JSON.parse(text) as TrashEntry;
+    if (entry.attachment) {
+      return this.run(async () => {
+        const rt = this.rt(entry.roadmapId);
+        const wanted = entry.attachment!.path;
+        const dirRel = path.posix.dirname(wanted);
+        const name = this.uniqueAttachmentName(rt, dirRel, path.posix.basename(wanted));
+        await ensureDir(path.join(rt.dir, dirRel));
+        await moveFile(path.join(this.metaDir, 'trash', entry.attachment!.stored), path.join(rt.dir, dirRel, name));
+        await removeFile(file);
+        await this.scanAttachments(rt);
+        this.emitEvent({ type: 'roadmap', roadmapId: rt.meta.id, ids: [], source: 'app' });
+        return { roadmapId: rt.meta.id, restored: [`${dirRel}/${name}`] };
+      });
+    }
     if (entry.roadmapDir) {
       await this.run(async () => {
         const from = path.join(this.metaDir, 'trash', entry.roadmapDir!);
@@ -1326,12 +1362,126 @@ export class Workspace extends EventEmitter {
     return { roadmapId: entry.roadmapId, restored: res.checkpoints.map((c) => c.id) };
   }
 
+  // ---------------------------------------------------------------- attachments
+
+  private async scanAttachments(rt: Runtime) {
+    const out: Record<string, Attachment[]> = {};
+    const root = path.join(rt.dir, 'attachments');
+    for (const cp of await listDirs(root)) {
+      const items: Attachment[] = [];
+      for (const name of await listFiles(path.join(root, cp), (n) => !n.startsWith('.') && !n.endsWith('.tmp'))) {
+        try {
+          const st = await fs.stat(path.join(root, cp, name));
+          const ext = name.split('.').pop()?.toLowerCase() ?? '';
+          items.push({ name, path: `attachments/${cp}/${name}`, size: st.size, modified: st.mtime.toISOString(), kind: ATTACHMENT_TYPES[ext]?.kind ?? 'other' });
+        } catch {
+          /* vanished meanwhile */
+        }
+      }
+      if (items.length) out[cp] = items.sort((a, b) => a.modified.localeCompare(b.modified));
+    }
+    rt.attachments = out;
+  }
+
+  private uniqueAttachmentName(rt: Runtime, dirRel: string, name: string): string {
+    const dot = name.lastIndexOf('.');
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : '';
+    let candidate = name;
+    for (let n = 2; existsSync(path.join(rt.dir, dirRel, candidate)); n++) candidate = `${stem}-${n}${ext}`;
+    return candidate;
+  }
+
+  /** Save an image or PDF for a checkpoint. Returns where it was stored. */
+  async addAttachment(roadmapId: string, checkpointId: string, fileName: string, data: Uint8Array) {
+    return this.run(async () => {
+      const rt = this.rt(roadmapId);
+      if (!rt.cps[checkpointId]) throw new HttpError(404, 'Checkpoint not found.');
+      const clean = safeFileName(fileName);
+      const ext = clean.split('.').pop()?.toLowerCase() ?? '';
+      if (!ATTACHMENT_TYPES[ext]) throw new HttpError(415, 'Attach images (PNG, JPG, GIF, WebP, SVG, AVIF, BMP) or PDF files.');
+      if (data.byteLength > MAX_ATTACHMENT_BYTES) throw new HttpError(413, `Files up to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB can be attached.`);
+      if (data.byteLength === 0) throw new HttpError(400, 'That file is empty.');
+      const dirRel = `attachments/${checkpointId}`;
+      await ensureDir(path.join(rt.dir, dirRel));
+      const name = this.uniqueAttachmentName(rt, dirRel, clean);
+      await writeBinaryAtomic(path.join(rt.dir, dirRel, name), data);
+      await this.scanAttachments(rt);
+      this.emitEvent({ type: 'roadmap', roadmapId, ids: [checkpointId], source: 'app' });
+      const rel = `${dirRel}/${name}`;
+      return { name, path: rel, markdownPath: `../${rel}`, kind: ATTACHMENT_TYPES[ext]!.kind };
+    });
+  }
+
+  /** Absolute path of a file inside a roadmap's attachments folder, or an error for anything else. */
+  attachmentFile(roadmapId: string, rel: string): string {
+    const rt = this.rt(roadmapId);
+    const clean = path.posix.normalize(rel.replace(/\\/g, '/')).replace(/^\/+/, '');
+    if (!clean.startsWith('attachments/') || clean.split('/').includes('..')) throw new HttpError(403, 'Only attached files can be opened.');
+    const absPath = path.resolve(rt.dir, ...clean.split('/'));
+    if (!absPath.startsWith(path.resolve(rt.dir, 'attachments') + path.sep)) throw new HttpError(403, 'Only attached files can be opened.');
+    return absPath;
+  }
+
+  /**
+   * For exports: an attached image as a data URI (so a saved web page or PDF contains it), or a link
+   * that opens other attachments through this server. Returns null for anything outside attachments.
+   */
+  exportAsset(roadmapId: string, rel: string): { src: string; embedded: boolean } | null {
+    let absPath: string;
+    try {
+      absPath = this.attachmentFile(roadmapId, rel);
+    } catch {
+      return null;
+    }
+    const ext = absPath.split('.').pop()?.toLowerCase() ?? '';
+    const type = ATTACHMENT_TYPES[ext];
+    const url = `/api/roadmaps/${encodeURIComponent(roadmapId)}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
+    if (type?.kind === 'image' && ext !== 'svg') {
+      try {
+        const data = readFileSync(absPath);
+        if (data.byteLength <= 8 * 1024 * 1024) return { src: `data:${type.mime};base64,${data.toString('base64')}`, embedded: true };
+      } catch {
+        return null;
+      }
+    }
+    return existsSync(absPath) ? { src: url, embedded: false } : null;
+  }
+
+  /** Move an attached file to Trash (restorable from the Trash dialog). */
+  async removeAttachment(roadmapId: string, rel: string) {
+    return this.run(async () => {
+      const rt = this.rt(roadmapId);
+      const absPath = this.attachmentFile(roadmapId, rel);
+      if (!existsSync(absPath)) throw new HttpError(404, 'That file is already gone.');
+      const id = newId('tr');
+      const stored = `attachments/${id}-${path.basename(absPath)}`;
+      await moveFile(absPath, path.join(this.metaDir, 'trash', stored));
+      const entry: TrashEntry = {
+        id,
+        roadmapId,
+        roadmapTitle: rt.meta.title,
+        deletedAt: new Date().toISOString(),
+        title: path.basename(absPath),
+        count: 1,
+        checkpoints: [],
+        files: {},
+        attachment: { path: toPosix(path.relative(rt.dir, absPath)), stored },
+      };
+      await writeFileAtomic(path.join(this.metaDir, 'trash', `${id}.json`), JSON.stringify(entry, null, 2));
+      await this.scanAttachments(rt);
+      this.emitEvent({ type: 'roadmap', roadmapId, ids: [], source: 'app' });
+      return { trashId: id };
+    });
+  }
+
   async purgeTrash(trashId: string) {
     const file = path.join(this.metaDir, 'trash', `${path.basename(trashId)}.json`);
     const text = await readText(file);
     if (text) {
       const entry = JSON.parse(text) as TrashEntry;
       if (entry.roadmapDir) await fs.rm(path.join(this.metaDir, 'trash', entry.roadmapDir), { recursive: true, force: true });
+      if (entry.attachment) await removeFile(path.join(this.metaDir, 'trash', entry.attachment.stored));
     }
     await removeFile(file);
   }
@@ -1599,6 +1749,19 @@ export class HttpError extends Error {
   }
 }
 
+/** A file name that is safe on Windows, macOS and Linux, keeping its extension. */
+export function safeFileName(name: string): string {
+  const base = (name.split(/[\\/]/).pop() ?? 'file').normalize('NFC');
+  let clean = base.replace(/[<>:"|?*\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[. ]+$/, '');
+  if (!clean || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(clean)) clean = `file-${clean || 'attachment'}`;
+  if (clean.length > 100) {
+    const dot = clean.lastIndexOf('.');
+    const ext = dot > 0 ? clean.slice(dot) : '';
+    clean = clean.slice(0, 100 - ext.length) + ext;
+  }
+  return clean;
+}
+
 function titleFromFile(rel: string): string {
   const base = path.basename(rel, '.md').replace(/[-_]+/g, ' ').trim();
   return base ? base[0]!.toUpperCase() + base.slice(1) : 'Untitled';
@@ -1665,9 +1828,26 @@ export function previewChangeset(meta: RoadmapMeta, cps: CheckpointMap, cs: Chan
             return { field, before, after: v, yours: isHumanField(field) };
           })
           .filter((c) => !fieldEquals(c.before, c.after));
+        // Appends (e.g. session notes) only add text below what is there.
+        for (const [key, text] of Object.entries(normaliseSections(op.append ?? undefined).sections)) {
+          if (!text?.trim()) continue;
+          const field = `sections.${key}` as FieldPath;
+          const before = getField(cur, field);
+          changes.push({ field, before, after: appendText(before, text), yours: isHumanField(field) && !APPENDABLE_FIELDS.includes(field) });
+        }
         if (changes.some((c) => c.yours)) warnings.push('Touches something only you normally change.');
-        if (cur.approved) warnings.push('You approved this checkpoint.');
-        return { index, op: 'update', title: cur.title, detail: `${changes.length} field(s)`, changes, warnings, valid: true, risky: changes.some((c) => c.yours) || cur.approved };
+        if (cur.approved && changes.some((c) => !isHumanField(c.field))) warnings.push('You approved this checkpoint.');
+        const appendsOnly = Object.keys(op.set).length === 0;
+        return {
+          index,
+          op: 'update',
+          title: cur.title,
+          detail: appendsOnly ? `Adds to ${changes.map((c) => fieldLabel(c.field)).join(', ')}` : `${changes.length} field(s)`,
+          changes,
+          warnings,
+          valid: true,
+          risky: changes.some((c) => c.yours) || (cur.approved && !appendsOnly),
+        };
       }
       case 'move': {
         const cur = cps[op.id];

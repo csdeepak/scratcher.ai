@@ -82,6 +82,7 @@ Considered and not chosen: **elkjs** (EPL-2.0) and **dagre** (MIT) are general D
 ```
 
 * **Top bar:** roadmap switcher, search/command palette, save state (*Saved / Saving… / Not saved: retrying / Server offline: changes kept locally*), **Review** with a count of pending items, and a menu (export, import, backup, templates, trash, agent setup, theme).
+* **Attachments and viewer:** images and PDFs belong to a checkpoint (drop, paste or add). A full-screen viewer shows images and PDFs (pdf.js, offline) with working links.
 * **Library (far left):** all roadmaps in nested folders with colour tabs, like a notebook's section list. Folders are real folders under `roadmaps/`. Drag a roadmap onto a folder to move it, and use the ⋯ menu for colour, export and settings.
 * **Outline (left):** a tree synchronised with the map. Supports drag-and-drop, inline rename, and keyboard navigation. Collapsible.
 * **Map (centre):** main checkpoints run down a *main path* spine. Sub-checkpoints branch to the right. Solid curves are parent→child links; dashed arrows are prerequisites (highlighted for the selected checkpoint). Optional checkpoints have dashed borders. Collapsed nodes show a “+n” chip. `F` focuses one branch, `O` returns to the overview.

@@ -154,14 +154,39 @@ describe('guard rules', () => {
     expect(d.next.summary).toBe('s-human');
   });
 
-  it('strips human-owned values from checkpoints created outside the app', () => {
-    const { next, held } = guardNewCheckpoint(meta, base({ id: 'n', status: 'complete', approved: true, sections: { content: 'ok', notes: 'x' } }));
+  it('strips human-owned values from checkpoints created outside the app, but keeps session notes', () => {
+    const { next, held } = guardNewCheckpoint(
+      meta,
+      base({ id: 'n', status: 'complete', approved: true, sections: { content: 'ok', notes: 'session notes', ownWords: 'agent wrote this' } }),
+    );
     expect(next.status).toBe('not-started');
     expect(next.approved).toBe(false);
-    expect(next.sections).toEqual({ content: 'ok' });
-    expect(held.map((h) => h.field).sort()).toEqual(['approved', 'sections.notes', 'status']);
+    expect(next.sections).toEqual({ content: 'ok', notes: 'session notes' });
+    expect(held.map((h) => h.field).sort()).toEqual(['approved', 'sections.ownWords', 'status']);
     // a plain new file without human fields holds nothing
     expect(guardNewCheckpoint(meta, base({ id: 'm', understanding: null, sections: { content: 'x' } })).held).toEqual([]);
+  });
+
+  it('lets an agent add session notes below yours but never rewrite or remove your text', () => {
+    const existing = base({ id: 'x', rev: 3, approved: true, sections: { notes: 'My own line.', takeaways: '- first', ownWords: 'mine' } });
+    const appended = {
+      ...existing,
+      sections: {
+        notes: 'My own line.\n\n### Session, 16 Nov\n- Covered eigenvectors\n- Open: why symmetric matrices?',
+        takeaways: '- first\n- second, from the session',
+        ownWords: 'mine plus an agent sentence',
+      },
+    };
+    const d = guardExternalEdit({ meta, cps: { x: existing }, existing, incoming: appended, base: null });
+    expect(d.accepted.map((c) => c.field).sort()).toEqual(['sections.notes', 'sections.takeaways']);
+    expect(d.held).toMatchObject([{ field: 'sections.ownWords', reason: 'yours' }]);
+
+    const rewrite = { ...existing, sections: { ...existing.sections, notes: 'Agent replaced everything.' } };
+    expect(guardExternalEdit({ meta, cps: { x: existing }, existing, incoming: rewrite, base: null }).held).toMatchObject([{ field: 'sections.notes', reason: 'yours' }]);
+
+    const locked = { ...existing, approved: false, agentAccess: 'locked' as const };
+    const lockedEdit = { ...locked, sections: { ...locked.sections, notes: 'My own line.\nmore' } };
+    expect(guardExternalEdit({ meta, cps: { x: locked }, existing: locked, incoming: lockedEdit, base: null }).held[0]!.reason).toBe('locked');
   });
 });
 
@@ -171,6 +196,7 @@ describe('bundles', () => {
       meta,
       slug: 't',
       folder: '',
+      attachments: {},
       checkpoints: { a: base({ id: 'cp-a0000001', sections: { content: 'x' } }), b: base({ id: 'cp-b0000001', parent: 'cp-a0000001', status: 'complete' }) },
       layout: { schema: 'waymark-layout/1' as const, offsets: { 'cp-a0000001': { dx: 10, dy: -5 } } },
       files: {},
@@ -184,5 +210,19 @@ describe('bundles', () => {
     expect(parsed.value.layout.offsets).toEqual(rm.layout.offsets);
     expect(parseBundle({ format: 'nope' }).ok).toBe(false);
     expect(parseBundle({ format: 'waymark-bundle', schemaVersion: 99, roadmap: { title: 'x' }, checkpoints: [] }).ok).toBe(false);
+  });
+});
+
+describe('append (session notes)', () => {
+  it('adds below existing section text without retyping it, and validates the op', () => {
+    const start = { x: base({ id: 'x', sections: { notes: 'Mine.' } }) };
+    const cs = parseChangeset({ changes: [{ op: 'update', id: 'x', append: { notes: '### Session 2026-11-16: topic\n- point', 'Key takeaways': '- new insight' } }] });
+    expect(cs.ok && cs.value.changes).toHaveLength(1);
+    if (!cs.ok) return;
+    const r = applyOps(meta, start, cs.value.changes, { source: 'proposal' });
+    expect(r.checkpoints.x!.sections.notes).toBe('Mine.\n\n### Session 2026-11-16: topic\n- point');
+    expect(r.checkpoints.x!.sections.takeaways).toBe('- new insight');
+    const empty = parseChangeset({ changes: [{ op: 'update', id: 'x' }] });
+    expect(empty.ok && empty.value.invalid).toHaveLength(1);
   });
 });

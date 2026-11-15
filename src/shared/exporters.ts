@@ -141,7 +141,7 @@ export function toMarkdown(rm: Roadmap, opts: ExportOptions = {}): string {
 // ------------------------------------------------------------------ HTML (print → PDF)
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const md = (s: string) => micromark(s, { extensions: [gfm()], htmlExtensions: [gfmHtml()] });
+const renderMd = (s: string) => micromark(s, { extensions: [gfm()], htmlExtensions: [gfmHtml()] });
 
 const STATUS_COLORS: Record<string, [string, string]> = {
   todo: ['#f5f2ea', '#57534e'],
@@ -150,7 +150,19 @@ const STATUS_COLORS: Record<string, [string, string]> = {
   done: ['#dcfce7', '#15803d'],
 };
 
-export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean } = {}): string {
+/** "../attachments/x.png" or "attachments/x.png" (as written in a checkpoint) → path inside the roadmap. */
+export function attachmentRel(src: string): string | null {
+  const m = src.match(/^(?:\.\.\/)?(attachments\/[^?#]+)/);
+  return m ? decodeURI(m[1]!) : null;
+}
+
+export function toHtml(rm: Roadmap, opts: ExportOptions & { print?: boolean; asset?: (rel: string) => { src: string; embedded: boolean } | null } = {}): string {
+  const resolve = (url: string) => {
+    const rel = attachmentRel(url);
+    if (!rel || !opts.asset) return url;
+    return opts.asset(rel)?.src ?? url;
+  };
+  const md = (text: string) => renderMd(text).replace(/(<img[^>]*?\ssrc=")([^"]+)(")/g, (_m, a: string, src: string, b: string) => a + resolve(src.replace(/&amp;/g, '&')) + b).replace(/(<a[^>]*?\shref=")([^"]+)(")/g, (_m, a: string, href: string, b: string) => a + resolve(href.replace(/&amp;/g, '&')) + b);
   const profile = getProfile(rm.meta.profile);
   const progress = computeProgress(rm.checkpoints, rm.meta);
   const tree = buildTree(rm, opts);

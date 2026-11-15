@@ -1,7 +1,7 @@
 // Instructions written into the workspace for any AI agent that edits it.
 // Bump AGENTS_VERSION_MARK when the text changes; untouched older copies are upgraded.
 
-export const AGENTS_VERSION_MARK = '<!-- waymark:agents v2 -->';
+export const AGENTS_VERSION_MARK = '<!-- waymark:agents v3 -->';
 
 export const CLAUDE_MD = `# Claude instructions for this folder
 
@@ -86,20 +86,22 @@ for the roadmap's profile.
 |---|---|
 | \`# Objectives\` | you (learning) |
 | \`# Content\` | you: explanation or main material |
-| \`# What I already know\` | **human only** |
+| \`# What I already know\` | human; you may **add** below what is there |
 | \`# What I need to learn\` | you or human |
 | \`# Practice\` | you: exercises, activities, small builds |
-| \`# My notes\` | **human only** |
-| \`# Key takeaways\` | **human only** |
+| \`# My notes\` | human; you may **add** session notes below what is there |
+| \`# Key takeaways\` | human; you may **add** new bullets below what is there |
 | \`# In my own words\` | **human only** |
 | \`# Evidence\` | **human only** |
 | \`# Open questions\` | you or human |
 
 ## Rules the app enforces
 
-- **Human-only fields and sections** (status, understanding, approved, archived, agentAccess, My notes,
-  Key takeaways, What I already know, In my own words, Evidence): your edits to them are **held**. The
-  app puts the file back and asks the human. Don't retry. Ask the human in chat if you think a change is needed.
+- **Adding is allowed, rewriting is not.** In My notes, Key takeaways and What I already know you may add
+  text *below* what is already there; the app applies it and lists it in Review. Changing, reordering or
+  deleting the human's existing text there is **held**: the app puts the file back and asks the human.
+- **Human-only:** status, understanding, approved, archived, agentAccess, In my own words, Evidence. Your
+  edits to them are **held** for one-click approval. Don't retry; tell the human what you proposed.
 - **Approved checkpoints** (\`approved: true\`) and sections with \`agentAccess: locked\`: content edits are held.
 - **\`agentAccess: direct\`** on a checkpoint means your edits in it and below it apply without review.
   Otherwise your edits apply immediately but show up in the human's Review list to keep or revert.
@@ -108,6 +110,67 @@ for the roadmap's profile.
 - **Deleting a checkpoint file** that has the human's notes, progress, approval or sub-checkpoints is held
   and the file comes back. Use a proposal instead (below).
 - **Broken files** (bad YAML, missing \`---\`) are reported in INDEX.md and left untouched until fixed.
+
+## Workflows
+
+The human studies, works or brainstorms with you in a chat, then asks you to put the results into their
+roadmap. Recognise these requests even when they are phrased loosely ("save this", "update my roadmap",
+"wrap up"). If you can't write files in this chat, say so and use **No file access** below.
+
+### Start a study or work session
+Read the checkpoint file, its parent, and its INDEX.md entry first. Look at What I already know, What I
+need to learn, Open questions, My notes and attachments, so you start from where the human is. Teach or
+work in the chat; write nothing until the human asks you to wrap up (or asks for a specific edit).
+
+### Wrap up a session ("record this", "update my notes")
+1. Re-read the checkpoint file right before writing: the human may have edited it.
+2. **Session notes go into \`# My notes\`**, added *below* the existing text, never replacing it. Start with
+   a heading: \`### Session YYYY-MM-DD: <topic>\`.
+   - **The human decides the format.** If they say how ("bullet points", "Q&A", "Cornell style", "only
+     formulas", "short", "with code"), follow it exactly. A format they asked for earlier in the chat counts.
+   - **If they didn't say, choose the clearest representation** for what happened:
+     explaining a concept: key ideas as bullets, then one worked example, then formulas or code blocks.
+     Solving problems: the steps, the mistake made and the fix.
+     Brainstorming: ideas grouped by theme, then decisions, then next actions.
+     Lots of questions: question and answer pairs.
+     Keep it short: what the human will want to reread, not a transcript.
+3. Add durable insights to \`# Key takeaways\` as new bullets (skip any that are already there).
+4. Add unresolved points to \`# Open questions\`; tick (\`- [x]\`) any questions answered in this session.
+5. Add resources you actually discussed to \`resources\` (real URLs only). Add new subtopics that deserve
+   their own page as sub-checkpoints (new files with \`parent\`).
+6. **Progress is the human's call.** Only if they said so ("I finished this", "I can explain it now"), set
+   \`status\` or \`understanding\` accordingly: the app holds it until they approve it in Review. Never set
+   them because you explained something.
+7. Reply with the files you changed and what to check in Review.
+
+### Brainstorm into the roadmap
+Capture the outcome as session notes (as above) in the most related checkpoint. Turn concrete new
+topics into new checkpoints under the right parent. For moving or deleting existing checkpoints, write a
+proposal (see Common tasks).
+
+### Check understanding ("quiz me")
+Ask questions in the chat. On wrap-up, record a session note: what was asked, what went well, gaps. Put
+gaps in Open questions. You may *suggest* an understanding level in the chat; set it only if the human
+asks.
+
+### No human in the loop
+Running on a schedule, or told to "update everything" without details: choose the best representation
+yourself, keep entries short, prefer adding over editing, and never touch status or understanding.
+
+### No file access (web chat, or a file uploaded as a copy)
+You can't change the files. Reply with a \`waymark-changeset/1\` YAML block (see Common tasks). Put session
+notes and new takeaways in an \`update\` with \`append\`, which adds below the existing text so you never
+retype it: \`append: { notes: "### Session …", takeaways: "- …" }\`. The human pastes the reply into
+Waymark → Review → Paste proposal and previews it before anything changes.
+
+## Attachments and links
+
+- Images and PDFs for a checkpoint live in \`<roadmap>/attachments/<checkpoint-id>/\`. You may read them,
+  and add files there (e.g. a diagram you made). Never delete or rename them.
+- Embed an image in any section: \`![caption](../attachments/<checkpoint-id>/file.png)\`.
+  Link a PDF: \`[Lecture slides](../attachments/<checkpoint-id>/slides.pdf)\`. Paths are relative to the
+  checkpoint file, so they also work in Obsidian or VS Code.
+- Link another checkpoint by its id: \`[Gradient descent](cp-k3x9a2mf)\`. Web links: normal Markdown links.
 
 ## Common tasks
 
@@ -171,6 +234,10 @@ changes:
       title: New title
       summary: …
       sections: { content: "…" }
+    append:                 # optional: add below a section's existing text (session notes, takeaways)
+      notes: |
+        ### Session 2026-11-16: eigenvectors
+        - …
   - op: move
     id: cp-k3x9a2mf
     parent: cp-n3wid001     # null for top level

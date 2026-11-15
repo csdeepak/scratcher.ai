@@ -20,6 +20,7 @@ workspace/
     INDEX.md                    generated, read-only outline (ids, status, files, problems)
     layout.json                 optional manual offsets {"offsets": {"cp-…": {"dx": 40, "dy": -12}}}
     checkpoints/<slug>.md       one checkpoint per file
+    attachments/<checkpoint-id>/  images (png jpg gif webp avif bmp svg) and PDFs, up to 50 MB each
     proposals/*.yaml|json       changesets waiting for review
   templates/*.json              structure templates (bundle format, format: waymark-template)
   backups/YYYY-MM-DD/*.waymark.json
@@ -100,6 +101,30 @@ Statuses: general = `not-started`, `in-progress`, `needs-review`, `complete`; le
 | file deleted otherwise | moved to Trash, listed in Review |
 | unparseable file / changed id / duplicate id | reported (app + INDEX.md); file left untouched |
 
+## Attachments and links
+
+Files attached to a checkpoint live in `<roadmap>/attachments/<checkpoint-id>/` and are referenced from any
+section with paths relative to the checkpoint file, so other Markdown tools display them too:
+
+```markdown
+![Branch diagram](../attachments/cp-k3x9a2mf/branch%20diagram.png)
+[Week 3 slides](../attachments/cp-k3x9a2mf/slides.pdf)
+[Merge conflicts](cp-q1w2e3r4)        ← a link to another checkpoint, by id
+```
+
+Encode spaces and brackets in paths (`%20`, `%28`, `%29`). The app shows images inline, opens images and
+PDFs in its viewer, and follows checkpoint links; other links open in a new tab. Exports embed attached
+images, so a saved web page or PDF contains them.
+
+## Session notes from agents
+
+When an agent wraps up a study or brainstorming session it adds an entry to **My notes**, below the
+existing text, starting with `### Session YYYY-MM-DD: <topic>`, in the format the human asked for, or the
+clearest one for the session when they didn't. Adding below existing text is applied (and listed in
+Review); changing or removing existing text is held. The same applies to Key takeaways and What I already
+know. Headings such as `# Session log` or `# Study log` are read as part of My notes. See the *Workflows*
+section of `AGENTS.md` for the full procedure.
+
 ## Changeset (proposal) — `waymark-changeset/1`
 
 YAML or JSON, in `roadmaps/<slug>/proposals/` or pasted into Review.
@@ -120,6 +145,8 @@ changes:
   - { op: unlink, id: cp-dependent, prerequisite: cp-required }
 ```
 
+`update` may also carry `append: { notes: "…", takeaways: "…" }`, which adds text below a section's
+existing text (separated by a blank line) without retyping it. Use it for session notes.
 `set` accepts `title, summary, completion, optional, prerequisites, resources, sections, status,
 understanding, approved, archived, agentAccess`; the last five are flagged in the preview as yours and
 are not pre-selected. Section keys may be keys or headings (`"My notes"`). Invalid changes are listed
@@ -177,6 +204,9 @@ Requests from other websites are refused (Origin and Host checks). JSON in and o
 | `GET /api/roadmaps/:id/export?format=` | `json` (backup) · `md` · `html` · `pdf` (HTML that opens the print dialog) · `opml`; options `branch=<id>`, `personal=0`, `archived=1` |
 | `POST /api/import?folder=` | a backup bundle |
 | `POST /api/import/markdown` | `{text, title?, profile?, folder?}`: headings and lists become checkpoints |
+| `POST /api/roadmaps/:id/attachments?cp=&name=` | file bytes as the body; returns `{path, markdownPath}` |
+| `DELETE /api/roadmaps/:id/attachments?path=` | moves an attachment to Trash |
+| `GET /api/roadmaps/:id/files/attachments/…` | serves an attached file (`?download=1` to download) |
 | `GET /api/review` · `POST /api/review/:itemId` | `{action: keep\|revert\|apply\|discard, fields?}` |
 | `POST /api/roadmaps/:id/proposals` | paste `{text}` |
 | `POST /api/roadmaps/:id/proposals/:name/apply` · `/reject` | `{indexes}` |

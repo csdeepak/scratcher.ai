@@ -119,8 +119,34 @@ export interface Roadmap {
   layout: RoadmapLayout;
   /** checkpoint id -> file path relative to the roadmap folder */
   files: Record<string, string>;
+  /** checkpoint id -> attached images and PDFs */
+  attachments: Record<string, Attachment[]>;
   problems: Problem[];
 }
+
+/** A file attached to a checkpoint: lives in <roadmap>/attachments/<checkpoint-id>/. */
+export interface Attachment {
+  name: string;
+  /** Path inside the roadmap folder, e.g. "attachments/cp-k3x9a2mf/diagram.png". */
+  path: string;
+  size: number;
+  modified: string;
+  kind: 'image' | 'pdf' | 'other';
+}
+
+export const ATTACHMENT_TYPES: Record<string, { mime: string; kind: Attachment['kind'] }> = {
+  png: { mime: 'image/png', kind: 'image' },
+  jpg: { mime: 'image/jpeg', kind: 'image' },
+  jpeg: { mime: 'image/jpeg', kind: 'image' },
+  gif: { mime: 'image/gif', kind: 'image' },
+  webp: { mime: 'image/webp', kind: 'image' },
+  avif: { mime: 'image/avif', kind: 'image' },
+  bmp: { mime: 'image/bmp', kind: 'image' },
+  svg: { mime: 'image/svg+xml', kind: 'image' },
+  pdf: { mime: 'application/pdf', kind: 'pdf' },
+};
+
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 export interface Problem {
   file: string;

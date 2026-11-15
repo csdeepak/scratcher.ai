@@ -6,6 +6,7 @@ import { http } from '../api';
 import { getState, navigate, refreshLibrary, refreshSummaries, setState, useStore } from '../store';
 import { roadmapColor, type RoadmapColor } from '../../shared/model';
 import { ColorSwatches } from './Library';
+import { AgentDialog } from './AgentDialog';
 import { Button, Chip, Kbd, Modal, cx, relTime } from './ui';
 
 const input = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-[13.5px] outline-none focus:border-accent';
@@ -286,6 +287,7 @@ interface TrashRow {
   title: string;
   count: number;
   roadmapDir?: string;
+  attachment?: { path: string };
 }
 
 function TrashDialog() {
@@ -319,7 +321,7 @@ function TrashDialog() {
             <li key={r.id} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] font-medium">
-                  {r.title} {r.roadmapDir ? <Chip>roadmap</Chip> : r.count > 1 ? <Chip>{r.count} checkpoints</Chip> : null}
+                  {r.title} {r.roadmapDir ? <Chip>roadmap</Chip> : r.attachment ? <Chip>attached file</Chip> : r.count > 1 ? <Chip>{r.count} checkpoints</Chip> : null}
                 </div>
                 <div className="text-[12px] text-faint">
                   {r.roadmapDir ? 'Whole roadmap' : r.roadmapTitle} · deleted {relTime(r.deletedAt)}
@@ -359,127 +361,6 @@ function TrashDialog() {
           </>
         }
       />
-    </Modal>
-  );
-}
-
-function AgentDialog() {
-  const open = useStore((s) => s.dialog === 'agent');
-  const rm = useStore((s) => s.roadmap);
-  const selectedId = useStore((s) => s.selectedId);
-  const workspace = useStore((s) => s.workspace);
-  const [tab, setTab] = useState<'files' | 'chat'>('files');
-  const [request, setRequest] = useState('');
-  const [scope, setScope] = useState<'section' | 'roadmap'>('section');
-  const sel = selectedId && rm ? rm.checkpoints[selectedId] : null;
-  useEffect(() => {
-    if (open) setScope(sel ? 'section' : 'roadmap');
-  }, [open, sel]);
-
-  const example = sel
-    ? `Read AGENTS.md. In the roadmap "${rm?.meta.title}", expand the checkpoint "${sel.title}" (${sel.id}) into 3-6 sub-checkpoints with short explanations and a few good resources. Don't change anything else.`
-    : rm
-      ? `Read AGENTS.md. Draft the main checkpoints for the roadmap "${rm.meta.title}" (roadmaps/${rm.slug}). Keep it to 5-8 main checkpoints with a summary each; no sub-checkpoints yet.`
-      : 'Read AGENTS.md, then create a new roadmap for my goal: …';
-
-  const copyBrief = async () => {
-    if (!rm) return;
-    try {
-      const res = await http.post<{ text: string }>(`/api/roadmaps/${rm.meta.id}/brief`, { checkpointId: scope === 'section' ? selectedId : null, request });
-      await navigator.clipboard.writeText(res.text);
-      toast.success('Brief copied. Paste it into your chat, then paste the reply in Review → Paste proposal.');
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
-
-  return (
-    <Modal open={open} onOpenChange={(o) => setState({ dialog: o ? 'agent' : null })} title="Work with an agent" description="Waymark has no built-in AI. Any agent you already use can draft and edit your roadmap. Pick how it can reach your files." wide>
-      <div className="mb-4 flex rounded-lg bg-surface-2 p-0.5 text-[12.5px]">
-        {[
-          ['files', 'Agent with file access (recommended)'],
-          ['chat', 'Chat without file access'],
-        ].map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k as 'files' | 'chat')} className={cx('flex-1 rounded-md px-3 py-1.5', tab === k ? 'bg-surface font-medium shadow-sm' : 'text-muted')}>
-            {l}
-          </button>
-        ))}
-      </div>
-      {tab === 'files' ? (
-        <div className="grid gap-4 text-[13px] leading-relaxed">
-          <p className="text-muted">The agent edits the Markdown files in your workspace. Waymark shows each change within a second and lists it in Review. It never lets an agent change your notes, progress or approved content without your OK.</p>
-          <div className="rounded-xl border border-line p-3">
-            <div className="mb-1.5 flex items-center gap-2 text-[12.5px] font-semibold">
-              <FolderOpen size={14} /> Your workspace folder
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md bg-surface-2 px-2 py-1 font-mono text-[12px]">{workspace}</code>
-              <Button size="sm" onClick={() => void navigator.clipboard.writeText(workspace).then(() => toast.success('Path copied'))}>
-                <Copy size={13} /> Copy
-              </Button>
-            </div>
-          </div>
-          <ul className="grid gap-2.5">
-            <li>
-              <b>Claude Code</b> (terminal, or the Claude desktop app's Code tab): open the workspace folder. It reads <code className="font-mono text-[12px]">CLAUDE.md</code>, which loads <code className="font-mono text-[12px]">AGENTS.md</code>, automatically.
-            </li>
-            <li>
-              <b>Claude desktop app (chat)</b>: turn on a filesystem connector or extension and allow the workspace folder. A subscription on its own doesn't give Claude access to your files.
-            </li>
-            <li>
-              <b>Codex CLI, Cursor, VS Code agents, Gemini CLI</b>: open the workspace folder and tell the agent to read <code className="font-mono text-[12px]">AGENTS.md</code> first.
-            </li>
-          </ul>
-          <div>
-            <div className="mb-1 flex items-center gap-1.5 text-[12.5px] font-semibold">
-              <Terminal size={14} /> Something to ask
-            </div>
-            <div className="flex items-start gap-2">
-              <p className="min-w-0 flex-1 rounded-lg bg-surface-2 p-2.5 text-[12.5px]">{example}</p>
-              <Button size="sm" onClick={() => void navigator.clipboard.writeText(example).then(() => toast.success('Copied'))}>
-                <Copy size={13} />
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-3 text-[13px] leading-relaxed">
-          <p className="text-muted">
-            For ChatGPT or Claude on the web (no file access): copy a brief with the context and format, paste it into the chat, then paste the reply into <b>Review → Paste proposal</b>. You preview every change before anything is applied.
-          </p>
-          {rm ? (
-            <>
-              {sel && (
-                <div className="flex gap-2 text-[12.5px]">
-                  {(['section', 'roadmap'] as const).map((s) => (
-                    <label key={s} className={cx('flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5', scope === s ? 'border-accent bg-accent-soft' : 'border-line')}>
-                      <input type="radio" className="accent-[var(--accent)]" checked={scope === s} onChange={() => setScope(s)} />
-                      {s === 'section' ? `“${sel.title}” and below` : 'Whole roadmap outline'}
-                    </label>
-                  ))}
-                </div>
-              )}
-              <div>
-                <label className={label} htmlFor="ag-req">
-                  What should the agent do?
-                </label>
-                <textarea id="ag-req" rows={3} className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-[13px] outline-none focus:border-accent" value={request} onChange={(e) => setRequest(e.target.value)} placeholder={sel ? `Expand “${sel.title}” into sub-checkpoints with explanations and resources.` : 'Draft the main checkpoints.'} />
-              </div>
-              <div className="flex gap-2">
-                <Button variant="primary" onClick={() => void copyBrief()}>
-                  <Copy size={14} /> Copy brief for AI
-                </Button>
-                <Button onClick={() => setState({ dialog: 'paste' })}>Paste the reply…</Button>
-              </div>
-            </>
-          ) : (
-            <p className="text-muted">Open a roadmap first.</p>
-          )}
-        </div>
-      )}
-      <div className="mt-4 flex items-center gap-2 border-t border-line pt-3 text-[12px] text-muted">
-        <Bot size={13} /> Generated content stays a <Chip>draft</Chip> until you approve it, and never changes your status or understanding.
-      </div>
     </Modal>
   );
 }

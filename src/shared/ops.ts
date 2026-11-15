@@ -69,10 +69,13 @@ export const opSchema = z.discriminatedUnion('op', [
       op: z.literal('update'),
       id: z.string(),
       rev: z.number().int().optional(),
-      set: settableSchema,
+      set: settableSchema.default({}),
+      /** Text to add below a section's existing text (e.g. session notes), without retyping it. */
+      append: sectionsSchema.optional(),
       expect: z.record(z.string(), z.unknown()).optional(),
     })
-    .strict(),
+    .strict()
+    .refine((o) => Object.keys(o.set).length > 0 || Object.keys(o.append ?? {}).length > 0, 'update needs "set" or "append"'),
   z
     .object({ op: z.literal('move'), id: z.string(), parent: z.string().nullable(), ...posFields })
     .strict(),
@@ -150,6 +153,13 @@ export function settableToFields(set: Settable, meta: RoadmapMeta): [FieldPath, 
     }
   }
   return out;
+}
+
+/** Existing section text with `addition` added below it, separated by a blank line. */
+export function appendText(existing: unknown, addition: string): string {
+  const cur = typeof existing === 'string' ? existing.replace(/\s+$/, '') : '';
+  const add = addition.replace(/^\s*\n/, '').replace(/\s+$/, '');
+  return cur ? `${cur}\n\n${add}` : add;
 }
 
 function expectValue(expect: Record<string, unknown> | undefined, field: FieldPath): unknown {
@@ -293,6 +303,11 @@ export function applyOps(
               const v = (value as string[]).filter((p) => p !== cur.id);
               next = setField(next, field, v);
             } else next = setField(next, field, value);
+          }
+          for (const [key, text] of Object.entries(normaliseSections(op.append ?? undefined).sections)) {
+            if (!text?.trim()) continue;
+            const field = `sections.${key}` as FieldPath;
+            next = setField(next, field, appendText(getField(next, field), text));
           }
           if (next !== cur) {
             cps[op.id] = next;

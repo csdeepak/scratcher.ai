@@ -7,6 +7,7 @@ import { ReviewDrawer, PasteProposalDialog } from './components/Review';
 import { Dialogs } from './components/Dialogs';
 import { CommandPalette } from './components/Palette';
 import { ExportDialog, ImportDialog } from './components/Transfer';
+import { Viewer } from './components/Viewer';
 
 export function App() {
   const route = useStore((s) => s.route);
@@ -44,6 +45,7 @@ export function App() {
       <PasteProposalDialog />
       <ExportDialog />
       <ImportDialog />
+      <Viewer />
       <Toaster position="bottom-center" theme={theme === 'system' ? 'system' : theme} toastOptions={{ className: '!rounded-xl !text-[13px]' }} />
     </Tooltip.Provider>
   );

@@ -31,7 +31,8 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import type { Checkpoint, FieldPath, Resource, ResourceKind, Roadmap, SectionKey } from '../../shared/model';
+import type { Attachment, Checkpoint, FieldPath, Resource, ResourceKind, Roadmap, SectionKey } from '../../shared/model';
+import { fileUrl, formatSize, isAttachable, markdownFor, openViewer, uploadAttachment } from '../attachments';
 import { SECTION_DEFS, UNDERSTANDING_LEVELS, getProfile, statusDef, type Profile } from '../../shared/profiles';
 import { ancestors, childrenIndex, compareSiblings, effectiveAccess, type Progress } from '../../shared/tree';
 import { requiresTransitively } from '../../shared/ops';
@@ -41,7 +42,7 @@ import type { HistoryEntry } from '../../server/history';
 import { clearConflict, getState, selectCheckpoint, setFocus, setState, submit, useStore } from '../store';
 import { addCheckpoint, deleteCheckpoint, link, needsDeleteConfirm, setStatus, subtreeCount, unlink, updateFields } from '../actions';
 import { http } from '../api';
-import { MarkdownView, RichEditor, SourceEditor, toggleTaskAt } from './Markdown';
+import { MarkdownView, RichEditor, SourceEditor, toggleTaskAt, type AttachTarget } from './Markdown';
 import { Button, Chip, IconButton, Menu, Modal, Pop, ProgressBar, StatusIcon, Tip, UnderstandingIcon, cx, relTime } from './ui';
 
 export function DetailsPanel({ rm, progress }: { rm: Roadmap; progress: Map<string | null, Progress> }) {
@@ -62,10 +63,51 @@ function CheckpointDetails({ rm, cp, progress }: { rm: Roadmap; cp: Checkpoint; 
   const path = useMemo(() => ancestors(rm.checkpoints, cp.id), [rm.checkpoints, cp.id]);
   const access = effectiveAccess(rm.checkpoints, rm.meta, cp.id);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const p = progress.get(cp.id);
+  const attach = useMemo<AttachTarget>(() => ({ roadmapId: rm.meta.id, upload: (f: File) => uploadAttachment(rm.meta.id, cp.id, f) }), [rm.meta.id, cp.id]);
+
+  // Paste a screenshot or file anywhere on the page (outside an editor) to attach it.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('.milkdown, textarea, input, [contenteditable="true"]')) return;
+      const files = [...(e.clipboardData?.files ?? [])].filter(isAttachable);
+      if (!files.length) return;
+      e.preventDefault();
+      void attachFiles(attach, files);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [attach]);
 
   return (
-    <article className={cx('mx-auto px-5 pb-16 pt-4', pageMode ? 'max-w-3xl' : 'max-w-none')} aria-label={`Checkpoint ${cp.title}`}>
+    <article
+      className={cx('relative mx-auto px-5 pb-16 pt-4', pageMode ? 'max-w-3xl' : 'max-w-none')}
+      aria-label={`Checkpoint ${cp.title}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+      }}
+      onDrop={(e) => {
+        setDragging(false);
+        const files = [...e.dataTransfer.files].filter(isAttachable);
+        if (!files.length) return;
+        e.preventDefault();
+        void attachFiles(attach, files);
+      }}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-accent-soft/80 text-[14px] font-semibold text-accent">
+          Drop images or PDFs to attach them to “{cp.title}”
+        </div>
+      )}
       <div className="mb-2 flex items-center gap-1">
         <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-[12px] text-faint">
           <button className="truncate rounded px-1 hover:bg-surface-2 hover:text-fg" onClick={() => selectCheckpoint(null)}>
@@ -118,16 +160,17 @@ function CheckpointDetails({ rm, cp, progress }: { rm: Roadmap; cp: Checkpoint; 
 
       <div className="mt-5 grid gap-1">
         {profile.sections.map((k) => (
-          <SectionBlock key={`${cp.id}-${k}`} cp={cp} sectionKey={k} />
+          <SectionBlock key={`${cp.id}-${k}`} cp={cp} sectionKey={k} attach={attach} />
         ))}
         {(Object.keys(cp.sections) as SectionKey[])
           .filter((k) => !profile.sections.includes(k))
           .map((k) => (
-            <SectionBlock key={`${cp.id}-${k}`} cp={cp} sectionKey={k} extra />
+            <SectionBlock key={`${cp.id}-${k}`} cp={cp} sectionKey={k} extra attach={attach} />
           ))}
       </div>
 
       <ResourcesBlock cp={cp} />
+      <AttachmentsBlock rm={rm} cp={cp} attach={attach} />
       <CompletionField cp={cp} />
       <PrereqBlock rm={rm} cp={cp} profile={profile} />
       <HistoryBlock rm={rm} cp={cp} />
@@ -453,7 +496,7 @@ const PREF_KEY = 'waymark.editorMode';
 /** Compare section text the way the server stores it (trimmed, LF newlines). */
 const norm = (s: string) => s.replace(/\r\n?/g, '\n').trim();
 
-function SectionBlock({ cp, sectionKey, extra }: { cp: Checkpoint; sectionKey: SectionKey; extra?: boolean }) {
+function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; sectionKey: SectionKey; extra?: boolean; attach: AttachTarget }) {
   const def = SECTION_DEFS[sectionKey];
   const server = cp.sections[sectionKey] ?? '';
   const field = `sections.${sectionKey}` as FieldPath;
@@ -611,7 +654,7 @@ function SectionBlock({ cp, sectionKey, extra }: { cp: Checkpoint; sectionKey: S
 
       {editing ? (
         useSource ? (
-          <SourceEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} />
+          <SourceEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} attach={attach} />
         ) : (
           <div
             onKeyDown={(e) => {
@@ -621,7 +664,7 @@ function SectionBlock({ cp, sectionKey, extra }: { cp: Checkpoint; sectionKey: S
               }
             }}
           >
-            <RichEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} />
+            <RichEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} attach={attach} />
           </div>
         )
       ) : (
@@ -633,7 +676,7 @@ function SectionBlock({ cp, sectionKey, extra }: { cp: Checkpoint; sectionKey: S
             setEditing(true);
           }}
         >
-          <MarkdownView text={server} onToggleTask={(offset) => onChangeImmediate(toggleTaskAt(server, offset))} />
+          <MarkdownView text={server} roadmapId={attach.roadmapId} onToggleTask={(offset) => onChangeImmediate(toggleTaskAt(server, offset))} />
         </div>
       )}
     </section>
@@ -709,6 +752,96 @@ function hostOf(url: string) {
   } catch {
     return url;
   }
+}
+
+// ------------------------------------------------------------------ attachments
+
+async function attachFiles(target: AttachTarget, files: File[]) {
+  let ok = 0;
+  for (const f of files) {
+    try {
+      await target.upload(f);
+      ok++;
+    } catch (e) {
+      toast.error(`${f.name || 'File'}: ${(e as Error).message}`);
+    }
+  }
+  if (ok) toast.success(ok === 1 ? 'Attached. Find it under Attachments.' : `Attached ${ok} files.`);
+}
+
+function AttachmentsBlock({ rm, cp, attach }: { rm: Roadmap; cp: Checkpoint; attach: AttachTarget }) {
+  const items = rm.attachments?.[cp.id] ?? [];
+  const input = useRef<HTMLInputElement>(null);
+  const insertIntoNotes = (a: Attachment) => {
+    const md = markdownFor({ name: a.name, markdownPath: `../${a.path}`, kind: a.kind });
+    void submit([{ op: 'update', id: cp.id, set: {}, append: { notes: md } }], { undo: null }).then(() => toast.success('Added to My notes.'));
+  };
+  const remove = async (a: Attachment) => {
+    try {
+      const res = await http.del<{ trashId: string }>(`/api/roadmaps/${encodeURIComponent(rm.meta.id)}/attachments?path=${encodeURIComponent(a.path)}`);
+      toast(`Moved “${a.name}” to Trash`, { action: { label: 'Undo', onClick: () => void http.post(`/api/trash/${res.trashId}/restore`).catch((e) => toast.error((e as Error).message)) } });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  return (
+    <section className="mt-5" aria-label="Attachments">
+      <div className="mb-1.5 flex items-center gap-2 px-2">
+        <h3 className="text-[12.5px] font-semibold">Attachments</h3>
+        <span className="text-[11px] text-faint">{items.length || ''}</span>
+        <button className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent" onClick={() => input.current?.click()}>
+          <Plus size={13} /> Add
+        </button>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          accept="image/*,.pdf,application/pdf"
+          className="hidden"
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = '';
+            if (files.length) void attachFiles(attach, files);
+          }}
+        />
+      </div>
+      {items.length === 0 ? (
+        <div className="px-2 text-[12.5px] text-faint">Images and PDFs: drop them on this page, paste a screenshot (Ctrl+V), or use Add.</div>
+      ) : (
+        <ul className="grid grid-cols-2 gap-2 px-1 sm:grid-cols-3">
+          {items.map((a) => (
+            <li key={a.path} className="group relative overflow-hidden rounded-lg border border-line bg-surface">
+              <button className="block w-full text-left" onClick={() => openViewer(rm.meta.id, a.path, a.name)} title={`Open ${a.name}`}>
+                {a.kind === 'image' ? (
+                  <img src={fileUrl(rm.meta.id, a.path)} alt={a.name} loading="lazy" className="h-24 w-full bg-surface-2 object-cover" />
+                ) : (
+                  <div className="flex h-24 w-full items-center justify-center bg-surface-2 text-danger">
+                    <FileText size={30} strokeWidth={1.5} />
+                    <span className="ml-1 text-[11px] font-bold uppercase">{a.kind === 'pdf' ? 'PDF' : 'File'}</span>
+                  </div>
+                )}
+                <div className="px-2 py-1.5">
+                  <div className="truncate text-[12px] font-medium">{a.name}</div>
+                  <div className="text-[11px] text-faint">{formatSize(a.size)}</div>
+                </div>
+              </button>
+              <div className="absolute right-1 top-1 flex gap-0.5 rounded-md bg-surface/90 p-0.5 opacity-0 shadow-sm group-hover:opacity-100 group-focus-within:opacity-100">
+                <IconButton size="sm" label="Add a link to My notes" onClick={() => insertIntoNotes(a)}>
+                  <Link2 size={13} />
+                </IconButton>
+                <IconButton size="sm" label="Copy Markdown" onClick={() => copy(markdownFor({ name: a.name, markdownPath: `../${a.path}`, kind: a.kind }), 'Markdown copied')}>
+                  <Copy size={13} />
+                </IconButton>
+                <IconButton size="sm" label="Move to Trash" onClick={() => void remove(a)}>
+                  <Trash size={13} />
+                </IconButton>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function ResourcesBlock({ cp }: { cp: Checkpoint }) {
@@ -1102,7 +1235,7 @@ function RoadmapOverview({ rm, progress }: { rm: Roadmap; progress: Map<string |
           </div>
         ) : rm.meta.overview ? (
           <div className="cursor-text rounded-lg px-1 py-1 hover:bg-surface-2/60" onClick={() => setEditingOverview(true)}>
-            <MarkdownView text={rm.meta.overview} />
+            <MarkdownView text={rm.meta.overview} roadmapId={rm.meta.id} />
           </div>
         ) : (
           <button className="text-[13px] text-faint hover:text-muted" onClick={() => setEditingOverview(true)}>

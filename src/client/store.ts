@@ -52,6 +52,8 @@ interface State {
   libraryDrawer: boolean;
   /** Roadmap the Export dialog is for (defaults to the open one). */
   exportTarget: string | null;
+  /** Attached image or PDF open in the full-screen viewer. */
+  viewer: { roadmapId: string; path: string; name: string; kind: 'image' | 'pdf' | 'other' } | null;
   workspaceProblems: Problem[];
   connected: boolean;
   route: Route;
@@ -122,6 +124,7 @@ export const useStore = create<State>(() => ({
   })(),
   libraryDrawer: false,
   exportTarget: null,
+  viewer: null,
   workspaceProblems: [],
   connected: true,
   route: parseRoute(),

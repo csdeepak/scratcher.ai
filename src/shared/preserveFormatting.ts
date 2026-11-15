@@ -65,3 +65,24 @@ export function preserveFormatting(original: string, edited: string): string {
   }
   return out.join('\n\n');
 }
+
+/**
+ * Crepe's image block writes its resize ratio where the description belongs ("![1.00](…)").
+ * Put back the description the file had for that image, or the file name, so Markdown stays readable.
+ */
+export function fixImageAlts(original: string, md: string): string {
+  const altFor = new Map<string, string>();
+  for (const m of original.matchAll(/!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?/g)) altFor.set(m[2]!, m[1]!);
+  return md.replace(/!\[(\d+(?:\.\d+)?)\]\(\s*(<?[^)\s>]+>?)/g, (_all, _ratio: string, src: string) => {
+    const clean = src.replace(/^<|>$/g, '');
+    let alt = altFor.get(clean);
+    if (alt === undefined) {
+      try {
+        alt = decodeURIComponent(clean.split('/').pop() ?? '').replace(/\.[^.]+$/, '');
+      } catch {
+        alt = '';
+      }
+    }
+    return `![${alt}](${src}`;
+  });
+}

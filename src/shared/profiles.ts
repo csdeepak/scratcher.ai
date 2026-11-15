@@ -64,7 +64,7 @@ export const SECTION_DEFS: Record<SectionKey, SectionDef> = {
     key: 'notes',
     label: 'My notes',
     owner: 'human',
-    hint: 'Your working notes. Agents can read them but cannot change them without your approval.',
+    hint: 'Your working notes, including notes from study sessions. Agents may add below what is here; changing or removing your text needs your approval.',
   },
   takeaways: {
     key: 'takeaways',
@@ -220,6 +220,13 @@ export function sectionFromHeading(text: string): SectionKey | null {
     takeaways: 'takeaways',
     questions: 'questions',
     'questions or gaps': 'questions',
+    // Session records belong in your notes; accept the headings agents tend to invent for them.
+    'session notes': 'notes',
+    'session log': 'notes',
+    'study log': 'notes',
+    'learning log': 'notes',
+    'work log': 'notes',
+    sessions: 'notes',
     'already know': 'known',
     'need to learn': 'toLearn',
     'practice activities': 'practice',

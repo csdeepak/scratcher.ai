@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { preserveFormatting } from '../src/shared/preserveFormatting';
+import { fixImageAlts, preserveFormatting } from '../src/shared/preserveFormatting';
 
 // What an agent typically writes, and what a visual editor gives back after a one-word edit:
 // "*" bullets, "_" emphasis, re-wrapped lines, "***" rules, escapes.
@@ -70,5 +70,14 @@ describe('preserveFormatting', () => {
   it('leaves code exactly as typed', () => {
     const out = preserveFormatting('```js\nconst  a = 1;\n```', '```js\nconst a = 1;\n```');
     expect(out).toBe('```js\nconst a = 1;\n```');
+  });
+});
+
+describe('image descriptions written by the editor', () => {
+  it('replaces the resize ratio with the original description or the file name', () => {
+    const original = 'Intro\n\n![Branch diagram](../attachments/cp-x/branch%20diagram.png)';
+    const fromEditor = 'Intro\n\n![1.00](../attachments/cp-x/branch%20diagram.png)\n\n![0.75](../attachments/cp-x/pasted-1.png)';
+    expect(fixImageAlts(original, fromEditor)).toBe('Intro\n\n![Branch diagram](../attachments/cp-x/branch%20diagram.png)\n\n![pasted-1](../attachments/cp-x/pasted-1.png)');
+    expect(fixImageAlts('', '![2024 results](x.png)')).toBe('![2024 results](x.png)');
   });
 });

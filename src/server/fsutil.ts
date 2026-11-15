@@ -63,6 +63,34 @@ export async function writeFileAtomic(target: string, text: string): Promise<voi
   await fs.rm(tmp, { force: true });
 }
 
+/** Atomic write for binary data (attachments). */
+export async function writeBinaryAtomic(target: string, data: Uint8Array): Promise<void> {
+  await ensureDir(path.dirname(target));
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${randomBytes(4).toString('hex')}.tmp`);
+  const fh = await fs.open(tmp, 'w');
+  try {
+    await fh.writeFile(data);
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+  await fs.rename(tmp, target).catch(async (e) => {
+    await fs.rm(tmp, { force: true });
+    throw e;
+  });
+}
+
+/** Move a single file, falling back to copy + delete across drives. */
+export async function moveFile(from: string, to: string): Promise<void> {
+  await ensureDir(path.dirname(to));
+  try {
+    await fs.rename(from, to);
+  } catch {
+    await fs.copyFile(from, to);
+    await fs.rm(from, { force: true, maxRetries: 5, retryDelay: 50 });
+  }
+}
+
 export async function removeFile(p: string): Promise<void> {
   await fs.rm(p, { force: true, maxRetries: 5, retryDelay: 50 });
 }

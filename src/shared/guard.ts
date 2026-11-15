@@ -2,7 +2,7 @@
 // Pure functions so they can be tested without a file system.
 
 import { ALL_FIELDS, type Checkpoint, type FieldChange, type FieldPath, type RoadmapMeta } from './model';
-import { clone, fieldEquals, getField, hasHumanContent, isHumanField, setField } from './fields';
+import { APPENDABLE_FIELDS, clone, fieldEquals, getField, hasHumanContent, isHumanField, isPureAppend, setField } from './fields';
 import { getProfile } from './profiles';
 import { childrenIndex, createsCycle, descendants, effectiveAccess, type CheckpointMap } from './tree';
 
@@ -83,9 +83,9 @@ function holdReason(
   cps: CheckpointMap,
   meta: RoadmapMeta,
 ): HoldReason | null {
-  if (isHumanField(f)) return 'yours';
-  if (existing.approved) return 'approved';
   if (access === 'locked') return 'locked';
+  if (isHumanField(f)) return APPENDABLE_FIELDS.includes(f) && isPureAppend(getField(existing, f), value) ? null : 'yours';
+  if (existing.approved) return 'approved';
   if (f === 'parent') {
     const parent = (value as string | null) ?? null;
     if (parent && (!cps[parent] || createsCycle(cps, existing.id, parent))) return 'structure';
@@ -109,7 +109,8 @@ export function guardNewCheckpoint(meta: RoadmapMeta, incoming: Checkpoint): { n
   let next = blank;
   for (const f of ALL_FIELDS) {
     if (!f.startsWith('sections.')) continue;
-    if (isHumanField(f)) next = setField(next, f, '');
+    // A new checkpoint may arrive with notes or takeaways from a session: that only adds text.
+    if (isHumanField(f) && !APPENDABLE_FIELDS.includes(f)) next = setField(next, f, '');
   }
   const held: HeldChange[] = [];
   // A missing understanding is the same as "not yet": nothing to hold.

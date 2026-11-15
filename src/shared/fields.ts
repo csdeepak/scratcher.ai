@@ -65,6 +65,19 @@ export function isHumanField(field: FieldPath): boolean {
   return HUMAN_SCALARS.includes(field);
 }
 
+/**
+ * Your sections an agent may add to. Adding below what is there is applied (and listed in Review);
+ * changing or deleting your existing text is held. "In my own words" and "Evidence" stay yours alone.
+ */
+export const APPENDABLE_FIELDS: FieldPath[] = ['sections.notes', 'sections.takeaways', 'sections.known'];
+
+/** True when `after` keeps all of `before` unchanged at its start and only adds text after it. */
+export function isPureAppend(before: unknown, after: unknown): boolean {
+  const b = typeof before === 'string' ? before.replace(/\r\n?/g, '\n').trimEnd() : '';
+  const a = typeof after === 'string' ? after.replace(/\r\n?/g, '\n').trimEnd() : '';
+  return a.length > b.length && a.startsWith(b);
+}
+
 /** Structural fields: changing them reorganises the roadmap. */
 export function isStructuralField(field: FieldPath): boolean {
   return field === 'parent';

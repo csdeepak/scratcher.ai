@@ -1,10 +1,21 @@
 import { memo, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { toast } from 'sonner';
 import { Crepe } from '@milkdown/crepe';
 import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { Selection } from '@milkdown/kit/prose/state';
-import { preserveFormatting } from '../../shared/preserveFormatting';
+import { insert } from '@milkdown/kit/utils';
+import { fixImageAlts, preserveFormatting } from '../../shared/preserveFormatting';
+import { attachmentRel } from '../../shared/exporters';
+import { encodeTarget, isAttachable, markdownFor, openViewer, resolveSrc, type Uploaded } from '../attachments';
+import { getState, navigate, selectCheckpoint } from '../store';
+
+/** Where pasted or dropped files are attached, and how stored paths become URLs. */
+export interface AttachTarget {
+  roadmapId: string;
+  upload: (file: File) => Promise<Uploaded>;
+}
 
 /** Flip the first task checkbox at or after `offset` in the Markdown source. */
 export function toggleTaskAt(text: string, offset: number): string {
@@ -14,13 +25,64 @@ export function toggleTaskAt(text: string, offset: number): string {
   return text.slice(0, i) + (m[1] === ' ' ? 'x' : ' ') + text.slice(i + 1);
 }
 
-export const MarkdownView = memo(function MarkdownView({ text, onToggleTask }: { text: string; onToggleTask?: (offset: number) => void }) {
+/**
+ * Follow a link written in a note: attached files open in the viewer, `cp-…` ids open that
+ * checkpoint, everything else opens in a new browser tab. Returns true when handled here.
+ */
+export function followLink(roadmapId: string | undefined, href: string): boolean {
+  if (!href) return false;
+  const rel = attachmentRel(href);
+  if (rel && roadmapId) {
+    openViewer(roadmapId, rel);
+    return true;
+  }
+  const cp = href.match(/^#?(cp-[A-Za-z0-9_-]+)$/)?.[1];
+  if (cp) {
+    const rm = getState().roadmap;
+    if (rm?.checkpoints[cp]) selectCheckpoint(cp, { center: true });
+    else if (roadmapId) navigate({ page: 'roadmap', id: roadmapId, cp });
+    return true;
+  }
+  return false;
+}
+
+export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roadmapId }: { text: string; onToggleTask?: (offset: number) => void; roadmapId?: string }) {
   return (
     <div className="prose-wm">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()} />,
+          a: ({ node: _n, href, ...p }) => (
+            <a
+              {...p}
+              href={href && roadmapId ? resolveSrc(roadmapId, href) : href}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (href && followLink(roadmapId, href)) e.preventDefault();
+              }}
+            />
+          ),
+          img: ({ node: _n, src, alt, ...p }) => {
+            const s = typeof src === 'string' ? src : '';
+            const rel = attachmentRel(s);
+            return (
+              <img
+                {...p}
+                alt={alt ?? ''}
+                src={roadmapId ? resolveSrc(roadmapId, s) : s}
+                loading="lazy"
+                className={rel ? 'cursor-zoom-in' : undefined}
+                onClick={(e) => {
+                  if (rel && roadmapId) {
+                    e.stopPropagation();
+                    openViewer(roadmapId, rel, alt || undefined);
+                  }
+                }}
+              />
+            );
+          },
           li: ({ node, className, children, ...p }) => {
             if (className?.includes('task-list-item') && onToggleTask && node?.position?.start.offset !== undefined) {
               const offset = node.position.start.offset;
@@ -57,6 +119,26 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask }: {
 
 const words = (s: string) => (s.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
 
+
+/** Files from a paste or drop that can be attached. */
+function attachableFiles(dt: DataTransfer | null): File[] {
+  if (!dt) return [];
+  return [...dt.files].filter(isAttachable);
+}
+
+async function uploadAll(target: AttachTarget, files: File[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const f of files) {
+    try {
+      out.push(markdownFor(await target.upload(f)));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  if (out.length) toast.success(out.length === 1 ? 'Attached and inserted.' : `Attached and inserted ${out.length} files.`);
+  return out;
+}
+
 /**
  * WYSIWYG Markdown editor (Milkdown Crepe). The value is read once at mount; parent re-keys
  * to load other content. Calls `onLossy` if the editor can't represent the text faithfully
@@ -68,18 +150,22 @@ export function RichEditor({
   placeholder,
   autoFocus,
   onLossy,
+  attach,
 }: {
   value: string;
   onChange: (md: string) => void;
   placeholder?: string;
   autoFocus?: boolean;
   onLossy?: () => void;
+  attach?: AttachTarget;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const lossyRef = useRef(onLossy);
   lossyRef.current = onLossy;
+  const attachRef = useRef(attach);
+  attachRef.current = attach;
 
   useEffect(() => {
     const el = ref.current;
@@ -92,17 +178,29 @@ export function RichEditor({
     // normalisation on load does not, so opening a section never rewrites the file.
     const events = ['keydown', 'beforeinput', 'input', 'paste', 'drop', 'mousedown', 'cut'];
     for (const ev of events) el.addEventListener(ev, mark, true);
+
+    const upload = async (file: File) => {
+      const t = attachRef.current;
+      if (!t) throw new Error('Open a checkpoint to attach files.');
+      return encodeTarget((await t.upload(file)).markdownPath);
+    };
     const crepe = new Crepe({
       root: el,
       defaultValue: value,
       features: {
         [Crepe.Feature.AI]: false,
         [Crepe.Feature.TopBar]: false,
-        [Crepe.Feature.ImageBlock]: false,
         [Crepe.Feature.Latex]: false,
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
+        // Images: uploads become attachments; stored paths like ../attachments/… are shown via the server.
+        [Crepe.Feature.ImageBlock]: {
+          onUpload: upload,
+          inlineOnUpload: upload,
+          blockOnUpload: upload,
+          proxyDomURL: (url: string) => (attachRef.current ? resolveSrc(attachRef.current.roadmapId, url) : url),
+        },
       },
     });
     // Write edited blocks in the most common Markdown style ("-" bullets and rules).
@@ -113,9 +211,34 @@ export function RichEditor({
         if (!interacted) return;
         // Crepe writes empty paragraphs as "<br />"; keep the files clean Markdown. Blocks the user
         // didn't touch keep their original text, so an agent's formatting isn't rewritten.
-        onChangeRef.current(preserveFormatting(original, md.replace(/^<br \/>\n?/gm, '')));
+        onChangeRef.current(preserveFormatting(original, fixImageAlts(original, md.replace(/^<br \/>\n?/gm, ''))));
       }),
     );
+
+    // Pasted or dropped images and PDFs: attach them, then insert an image or a link at the cursor.
+    const onFiles = (e: ClipboardEvent | DragEvent) => {
+      const t = attachRef.current;
+      const files = attachableFiles('clipboardData' in e ? e.clipboardData : e.dataTransfer);
+      if (!t || !files.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void uploadAll(t, files).then((mds) => {
+        if (mds.length) crepe.editor.action(insert(mds.join('\n\n')));
+      });
+    };
+    el.addEventListener('paste', onFiles as EventListener, true);
+    el.addEventListener('drop', onFiles as EventListener, true);
+
+    // Ctrl/Cmd+click follows links while editing.
+    const onClick = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest('a');
+      if (!a || !(e.ctrlKey || e.metaKey)) return;
+      const href = a.getAttribute('href') ?? '';
+      e.preventDefault();
+      if (!followLink(attachRef.current?.roadmapId, href)) window.open(href, '_blank', 'noopener');
+    };
+    el.addEventListener('click', onClick, true);
+
     let alive = true;
     void crepe.create().then(() => {
       if (!alive) return;
@@ -149,6 +272,9 @@ export function RichEditor({
     return () => {
       alive = false;
       for (const ev of events) el.removeEventListener(ev, mark, true);
+      el.removeEventListener('paste', onFiles as EventListener, true);
+      el.removeEventListener('drop', onFiles as EventListener, true);
+      el.removeEventListener('click', onClick, true);
       void crepe.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,7 +283,19 @@ export function RichEditor({
   return <div ref={ref} className="wm-editor -ml-1" />;
 }
 
-export function SourceEditor({ value, onChange, autoFocus, placeholder }: { value: string; onChange: (v: string) => void; autoFocus?: boolean; placeholder?: string }) {
+export function SourceEditor({
+  value,
+  onChange,
+  autoFocus,
+  placeholder,
+  attach,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+  placeholder?: string;
+  attach?: AttachTarget;
+}) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     const t = ref.current;
@@ -165,6 +303,22 @@ export function SourceEditor({ value, onChange, autoFocus, placeholder }: { valu
     t.style.height = 'auto';
     t.style.height = `${Math.max(96, t.scrollHeight + 2)}px`;
   }, [value]);
+
+  const insertAtCursor = (text: string) => {
+    const t = ref.current;
+    if (!t) return onChange(value ? `${value}\n\n${text}` : text);
+    const s = t.selectionStart;
+    const before = t.value.slice(0, s);
+    const pad = before && !before.endsWith('\n') ? '\n\n' : '';
+    onChange(before + pad + text + t.value.slice(t.selectionEnd));
+  };
+  const onFiles = (e: React.ClipboardEvent | React.DragEvent, dt: DataTransfer) => {
+    const files = attachableFiles(dt);
+    if (!attach || !files.length) return;
+    e.preventDefault();
+    void uploadAll(attach, files).then((mds) => mds.length && insertAtCursor(mds.join('\n\n')));
+  };
+
   return (
     <textarea
       ref={ref}
@@ -173,6 +327,8 @@ export function SourceEditor({ value, onChange, autoFocus, placeholder }: { valu
       placeholder={placeholder}
       spellCheck
       onChange={(e) => onChange(e.target.value)}
+      onPaste={(e) => onFiles(e, e.clipboardData)}
+      onDrop={(e) => onFiles(e, e.dataTransfer)}
       onKeyDown={(e) => {
         if (e.key === 'Tab' && !e.shiftKey) {
           e.preventDefault();
