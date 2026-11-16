@@ -10,6 +10,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, utilityProcess, type MenuItemConstructorOptions, type UtilityProcess } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { checkForUpdatesNow, initUpdates, probeUpdates } from './updates';
 
 const isMac = process.platform === 'darwin';
 const REPO = 'https://github.com/csdeepak/scratcher.ai';
@@ -23,6 +24,8 @@ if (process.env.WAYMARK_USER_DATA) app.setPath('userData', process.env.WAYMARK_U
 
 interface Config {
   workspace?: string;
+  /** Check GitHub Releases for new versions (default on). */
+  autoUpdate?: boolean;
   port?: number;
   bounds?: { x?: number; y?: number; width: number; height: number; maximized?: boolean };
 }
@@ -270,7 +273,8 @@ function createWindow(url: string) {
             };
           })()`,
         );
-        console.log(`WAYMARK_SMOKE ${JSON.stringify({ ...result, port: serverPort, workspace })}`);
+        const updates = process.env.WAYMARK_SMOKE_UPDATES === '1' ? await probeUpdates() : undefined;
+        console.log(`WAYMARK_SMOKE ${JSON.stringify({ ...result, updates, version: app.getVersion(), port: serverPort, workspace })}`);
         app.quit();
       }, 2500);
     });
@@ -311,6 +315,14 @@ function buildMenu() {
     {
       role: 'help',
       submenu: [
+        { label: 'Check for updates…', click: () => checkForUpdatesNow() },
+        {
+          label: 'Check for updates automatically',
+          type: 'checkbox',
+          checked: readConfig().autoUpdate !== false,
+          click: (item) => writeConfig({ autoUpdate: item.checked }),
+        },
+        { type: 'separator' },
         { label: 'Waymark on GitHub', click: () => void shell.openExternal(REPO) },
         {
           label: 'About Waymark',
@@ -354,6 +366,7 @@ else {
     const dir = await firstWorkspace();
     if (!dir) return app.quit();
     await openWorkspace(dir);
+    if (!SMOKE) initUpdates(() => win, () => readConfig().autoUpdate !== false);
   });
 
   app.on('activate', () => {

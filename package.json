@@ -19,13 +19,15 @@
     "gen:large": "tsx scripts/generate-large.ts",
     "desktop": "vite build && node scripts/build-desktop.mjs && electron .",
     "desktop:build": "vite build && node scripts/build-desktop.mjs",
-    "dist:win": "npm run desktop:build && electron-builder --win",
-    "dist:mac": "npm run desktop:build && electron-builder --mac",
-    "dist:linux": "npm run desktop:build && electron-builder --linux"
+    "dist:win": "npm run desktop:build && electron-builder --win --publish never",
+    "dist:mac": "npm run desktop:build && electron-builder --mac --publish never",
+    "dist:linux": "npm run desktop:build && electron-builder --linux --publish never",
+    "release:ci": "npm run desktop:build && electron-builder --publish always"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",
     "chokidar": "^6.0.0",
+    "electron-updater": "^6.8.11",
     "fflate": "^0.8.3",
     "hono": "^4.13.18",
     "katex": "^0.19.1",
@@ -141,7 +143,8 @@
         }
       ],
       "category": "public.app-category.productivity",
-      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "identity": "-"
     },
     "linux": {
       "target": [
@@ -154,10 +157,19 @@
       ],
       "category": "Office",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "csdeepak",
+        "repo": "scratcher.ai",
+        "releaseType": "draft"
+      }
+    ]
   },
   "allowScripts": {
     "electron@45.3.2": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "electron-winstaller": false
   }
 }

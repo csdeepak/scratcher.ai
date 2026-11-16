@@ -50,16 +50,40 @@ server from the app archive, creates a workspace, serves the UI, KaTeX and pdf.j
 backups (an automated check: `WAYMARK_SMOKE_TEST=1 WAYMARK_WORKSPACE=<folder> WAYMARK_USER_DATA=<folder>
 release/win-unpacked/Waymark.exe` prints `WAYMARK_SMOKE {…}` and quits). Not yet tested: macOS.
 
-Still to do: auto-update from GitHub Releases (`electron-updater`), and a GitHub Actions workflow that
-builds the Windows and Mac installers on each release.
+### Releases and auto-update
 
-**Signing:** unsigned apps work for personal use. Windows shows a SmartScreen warning ("More info → Run
-anyway"), and macOS needs right-click → Open the first time. Distributing to others without warnings needs
-a Windows code-signing certificate and the Apple Developer Program ($99/year).
+Two GitHub Actions workflows (`.github/workflows/`):
 
-**Alternative: Tauri 2** (about 10–15 MB; uses the system WebView2 on Windows and WebKit on macOS). The Node
-server would have to ship as a bundled sidecar executable or be rewritten in Rust. Choose it later if
-installer size matters more than effort.
+- **Checks** runs the typecheck, tests and UI build on Linux and Windows for every push to `main` and
+  every pull request.
+- **Release** runs when a version tag is pushed. It checks that the tag matches `package.json`, creates
+  a **draft** GitHub release, then builds on Windows, macOS and Linux (tests first) and uploads the
+  installers plus the `latest*.yml` files that auto-update reads. The layout follows Actual Budget's
+  MIT-licensed release workflow, and the actions are pinned to exact commits.
+
+To publish a version:
+
+```bash
+npm version 0.2.0
+git push --follow-tags
+```
+
+`npm version` updates `package.json`, commits, and creates the tag `v0.2.0`. When the workflow finishes,
+open the draft on GitHub (Releases), check it, and press **Publish release**. Nothing reaches users until
+you publish.
+
+**Auto-update** (`electron/updates.ts`, `electron-updater`, the flow of electron-builder's reference
+example): about 15 seconds after start and every 6 hours the installed app asks GitHub for the latest
+*published* release. On Windows and Linux it downloads in the background and offers **Restart now /
+Later**; with Later it installs when you quit. Your work is saved before the restart. On macOS an
+unsigned app can't replace itself, so it only says a new version exists and opens the download page.
+**Help → Check for updates…** checks at once; **Help → Check for updates automatically** turns the
+background check off. This check is the only network request Waymark makes.
+
+macOS builds use an ad-hoc signature (`mac.identity: "-"`, as electron-builder recommends without an
+Apple Developer ID), so Apple Silicon Macs open them. Gatekeeper still asks the first time: right-click
+the app → **Open**. Signing for others needs the Apple Developer Program, and the Windows SmartScreen
+prompt goes away only with a code-signing certificate.
 
 ## Stage 3: the web (other devices)
 
@@ -82,6 +106,5 @@ mobile apps (e.g. Capacitor) would come after stage 3.
 
 ## Suggested order
 
-1. Use the desktop app (stage 2) on Windows; build and try the Mac version.
-2. Add auto-update and release builds in GitHub Actions.
-3. Stage 3, option 1 or 2, when you need more than one device.
+1. Use the desktop app (stage 2) on Windows; publish a first release and try the Mac build on a Mac.
+2. Stage 3, option 1 or 2, when you need more than one device.

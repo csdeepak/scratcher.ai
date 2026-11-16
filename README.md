@@ -19,7 +19,8 @@ no subscription, no AI API, no internet needed after installing.
 `release/Waymark-Setup-<version>.exe`. Waymark then starts like any other app (Start menu or desktop
 shortcut), asks once where to keep your roadmaps (suggested: `Documents\Waymark`), and needs no terminal.
 The installer isn't code-signed yet, so Windows SmartScreen asks first: *More info → Run anyway*. Mac and
-Linux builds: `npm run dist:mac` / `npm run dist:linux` (see [docs/PLATFORMS.md](docs/PLATFORMS.md)).
+Linux builds: `npm run dist:mac` / `npm run dist:linux`. Releases are built by GitHub Actions and the
+installed app updates itself (see [docs/PLATFORMS.md](docs/PLATFORMS.md#releases-and-auto-update)).
 
 **In the browser** (any system). Needs [Node.js](https://nodejs.org) 20 or newer.
 
@@ -149,4 +150,4 @@ folder into another folder from the app (rename works; move folders in your file
 All runtime dependencies are open source: React, React Flow (@xyflow/react), d3-hierarchy, Milkdown,
 react-arborist, Radix UI, cmdk, sonner, lucide, Tailwind CSS, Hono, chokidar, zod, yaml, jsdiff, nanoid,
 micromark/mdast (Markdown), html-to-image (map PNG), react-pdf (MIT) with Mozilla pdf.js (Apache-2.0),
-KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). The desktop app adds Electron (MIT; its shell follows Actual Budget's MIT-licensed desktop app). Waymark makes no network requests while running.
+KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). The desktop app adds Electron and electron-updater (MIT; its shell and release workflow follow Actual Budget's MIT-licensed desktop app). Waymark makes no network requests while running, except the desktop app's update check (GitHub Releases), which you can turn off under Help.

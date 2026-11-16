@@ -1,0 +1,74 @@
+# Desktop installers for a release (pattern from Actual Budget's MIT-licensed electron workflow).
+#
+# 1. Set the version:   npm version 0.2.0   (updates package.json and creates the tag v0.2.0)
+# 2. Push it:           git push --follow-tags
+# 3. This workflow makes a DRAFT GitHub release, then builds on Windows, macOS and Linux and uploads
+#    the installers plus the latest*.yml files the app's auto-update reads.
+# 4. Check the draft on GitHub and press "Publish release". Installed apps see it within a few hours.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the tag matches package.json
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json version $version. Use 'npm version <x.y.z>' to set both."
+            exit 1
+          fi
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --title "Waymark ${TAG#v}" --generate-notes
+          fi
+
+  build:
+    needs: draft
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build and upload the installer
+        # Builds the targets in package.json "build" for this OS and uploads them to the draft release.
+        # Not code-signed: Windows shows SmartScreen once; macOS uses an ad-hoc signature (mac.identity "-").
+        run: npm run release:ci
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
