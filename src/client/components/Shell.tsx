@@ -48,10 +48,11 @@ import {
   toggleExpanded,
   toggleLibrary,
   toggleOutline,
+  redoLast,
   undoLast,
   useStore,
 } from '../store';
-import { addCheckpoint, addSibling, deleteCheckpoint, indent, outdent, requestDelete, shiftCheckpoint, startRename } from '../actions';
+import { addCheckpoint, addSibling, deleteMany, indent, outdent, requestDelete, shiftCheckpoint, startRename } from '../actions';
 import { MapCanvas } from './MapCanvas';
 import { Outline } from './Outline';
 import { DetailsPanel } from './Details';
@@ -454,7 +455,7 @@ export function RoadmapView() {
   const wide = useMedia('(min-width: 1024px)');
   const medium = useMedia('(min-width: 768px)');
   const pendingDelete = useStore((s) => s.pendingDelete);
-  const setPendingDelete = (id: string | null) => setState({ pendingDelete: id });
+  const setPendingDelete = (v: null) => setState({ pendingDelete: v });
   const [detailsWidth, setDetailsWidth] = useState(() => Number(localStorage.getItem('waymark.detailsWidth')) || 460);
 
   const layout = useMemo(() => (rm ? computeLayout(rm, expanded, focusId) : null), [rm, expanded, focusId]);
@@ -482,6 +483,12 @@ export function RoadmapView() {
       if (mod && key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
         void undoLast();
+        return;
+      }
+      // Redo: Ctrl+Y (Windows, Docs, draw.io) or Ctrl+Shift+Z / ⌘⇧Z (Mac).
+      if (mod && (key.toLowerCase() === 'y' || (key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        void redoLast();
         return;
       }
       if (mod || (e.altKey && !key.startsWith('Arrow'))) return;
@@ -622,8 +629,16 @@ export function RoadmapView() {
       <Modal
         open={!!pendingDelete}
         onOpenChange={(o) => !o && setPendingDelete(null)}
-        title={`Delete “${pendingDelete ? rm.checkpoints[pendingDelete]?.title : ''}”?`}
-        description="It has content, progress or sub-checkpoints. It goes to Trash, and Ctrl+Z brings it back."
+        title={
+          pendingDelete && pendingDelete.ids.length + pendingDelete.notes.length > 1
+            ? `Delete ${pendingDelete.ids.length + pendingDelete.notes.length} items?`
+            : `Delete “${pendingDelete?.ids[0] ? rm.checkpoints[pendingDelete.ids[0]]?.title : ''}”?`
+        }
+        description={
+          pendingDelete && pendingDelete.ids.length > 1
+            ? 'Some of them have content, progress or sub-checkpoints. They go to Trash, and Ctrl+Z brings them back.'
+            : 'It has content, progress or sub-checkpoints. It goes to Trash, and Ctrl+Z brings it back.'
+        }
         footer={
           <>
             <Button variant="ghost" onClick={() => setPendingDelete(null)}>
@@ -632,9 +647,9 @@ export function RoadmapView() {
             <Button
               variant="danger"
               onClick={() => {
-                const id = pendingDelete;
+                const p = pendingDelete;
                 setPendingDelete(null);
-                if (id) void deleteCheckpoint(id);
+                if (p) void deleteMany(p.ids, p.notes);
               }}
             >
               Delete

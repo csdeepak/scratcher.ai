@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { toast } from 'sonner';
 import { Crepe } from '@milkdown/crepe';
+import type { TopBarFeatureConfig } from '@milkdown/crepe/feature/top-bar';
 import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
 import { Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { insert } from '@milkdown/kit/utils';
@@ -12,6 +13,7 @@ import { fixImageAlts, preserveFormatting } from '../../shared/preserveFormattin
 import { attachmentRel } from '../../shared/exporters';
 import { encodeTarget, isAttachable, markdownFor, openViewer, resolveSrc, type Uploaded } from '../attachments';
 import { getState, navigate, selectCheckpoint } from '../store';
+import { fitTopBar } from '../topBarFit';
 
 /** Where pasted or dropped files are attached, and how stored paths become URLs. */
 export interface AttachTarget {
@@ -203,6 +205,65 @@ async function uploadAll(target: AttachTarget, files: File[]): Promise<string[]>
   return out;
 }
 
+// ------------------------------------------------------------------ formatting bar
+// One row, like Google Docs: everyday formatting stays on the bar and the rarer inserts go in an
+// "Insert" list (Crepe's own dropdown item type, so nothing is patched). "/" in the text has them all too.
+const INSERT_ITEMS: [key: string, label: string][] = [
+  ['image', 'Image'],
+  ['table', 'Table'],
+  ['code-block', 'Code block'],
+  ['math', 'Maths (LaTeX)'],
+  ['quote', 'Quote'],
+  ['hr', 'Divider'],
+];
+const BAR_BUTTONS: [key: string, label: string][] = [
+  ['bold', 'Bold (Ctrl+B)'],
+  ['italic', 'Italic (Ctrl+I)'],
+  ['strikethrough', 'Strikethrough'],
+  ['code', 'Code'],
+  ['link', 'Link'],
+  ['bullet-list', 'Bulleted list'],
+  ['ordered-list', 'Numbered list'],
+  ['task-list', 'Checklist'],
+];
+/** Names of the icon buttons, in the order the bar shows them. */
+let TOP_BAR_LABELS: string[] = BAR_BUTTONS.map(([, l]) => l);
+
+type TopBarBuilder = Parameters<NonNullable<TopBarFeatureConfig['buildTopBar']>>[0];
+
+function oneRowTopBar(b: TopBarBuilder) {
+  const items = new Map(b.build().flatMap((g) => g.items.map((i) => [i.key, i] as const)));
+  b.clear();
+  const shown: string[] = [];
+  const group = (key: string, label: string, keys: string[]) => {
+    const g = b.addGroup(key, label);
+    for (const k of keys) {
+      const it = items.get(k);
+      if (!it) continue;
+      const { key: _key, ...rest } = it;
+      g.addItem(k, rest);
+      const name = BAR_BUTTONS.find(([bk]) => bk === k)?.[1];
+      if (name) shown.push(name);
+    }
+  };
+  group('heading', 'Heading', ['heading-selector']);
+  group('formatting', 'Formatting', ['bold', 'italic', 'strikethrough', 'code', 'link']);
+  group('list', 'List', ['bullet-list', 'ordered-list', 'task-list']);
+  const options = INSERT_ITEMS.flatMap(([k, label]) => {
+    const run = items.get(k)?.onRun;
+    return run ? [{ label, onSelect: run }] : [];
+  });
+  if (options.length) {
+    b.addGroup('insert', 'Insert').addItem('insert', {
+      icon: '',
+      active: () => false,
+      selector: { activeLabel: () => 'Insert', chevronIcon: items.get('heading-selector')?.selector?.chevronIcon, options },
+    });
+  }
+  TOP_BAR_LABELS = shown;
+}
+
+
 /**
  * WYSIWYG Markdown editor (Milkdown Crepe). The value is read once at mount; parent re-keys
  * to load other content. Calls `onLossy` if the editor can't represent the text faithfully
@@ -270,6 +331,7 @@ export function RichEditor({
             { label: 'Subheading', level: 3 },
             { label: 'Small heading', level: 4 },
           ],
+          buildTopBar: oneRowTopBar,
         },
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
         [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false, strict: 'ignore' } },
@@ -318,9 +380,27 @@ export function RichEditor({
     };
     el.addEventListener('click', onClick, true);
 
+    // Crepe's bar buttons are icons only: give each a name (hover tooltip and screen readers).
+    const labelBar = () =>
+      el.querySelectorAll<HTMLElement>('.milkdown-top-bar .top-bar-item').forEach((b, i) => {
+        const name = TOP_BAR_LABELS[i];
+        if (name && b.getAttribute('aria-label') !== name) {
+          b.setAttribute('aria-label', name);
+          b.title = name;
+        }
+      });
+    const barWatch = new MutationObserver(labelBar);
+    let unfit = () => {};
+
     let alive = true;
     void crepe.create().then(() => {
       if (!alive) return;
+      labelBar();
+      const bar = el.querySelector<HTMLElement>('.milkdown-top-bar');
+      if (bar) {
+        barWatch.observe(bar, { childList: true, subtree: true });
+        unfit = fitTopBar(bar);
+      }
       try {
         if (value.trim() && words(crepe.getMarkdown()) !== words(value)) lossyRef.current?.();
       } catch {
@@ -352,6 +432,8 @@ export function RichEditor({
     });
     return () => {
       alive = false;
+      barWatch.disconnect();
+      unfit();
       for (const ev of events) el.removeEventListener(ev, mark, true);
       el.removeEventListener('paste', onFiles as EventListener, true);
       el.removeEventListener('drop', onFiles as EventListener, true);

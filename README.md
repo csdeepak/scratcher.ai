@@ -51,13 +51,14 @@ Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `
 | Links | Web links open in a new tab; `[title](cp-…)` jumps to another checkpoint; links to attachments open the viewer. While editing, Ctrl+click follows a link. |
 | Add checkpoints | Toolbar **+ Main checkpoint**, the toolbar above a selected checkpoint, or press **A** (sub-checkpoint) / **N** (next). You type the name right on the map. |
 | Edit the map (like draw.io) | **Double-click** (or F2) to rename. Drag a checkpoint's **blue dot** to another checkpoint to say “this needs that first”, or to empty space to add a sub-checkpoint. Click an arrow to remove it. **Drop a checkpoint onto another** to move it under that one; drop it on empty space to place it by hand. **Right-click** anything for its menu. |
+| Select several | **Shift+drag** on empty space draws a selection box; **Ctrl+click** (⌘ on a Mac) or **Shift+click** adds or removes one; **Ctrl+A** selects everything. Then drag them together, set their status, or delete them, from the toolbar above them or by right-clicking. |
 | Sticky notes | **Note** on the map toolbar (or right-click → Add a sticky note). Double-click to write, drag to move, drag the corners to resize, pick a colour. A note stays next to its nearest checkpoint. |
 | Reorganise | Drag on the map or in the outline, **Tab / Shift+Tab** to indent, **Alt+↑/↓** to reorder |
 | Work on one part | Select it and press **F** (focus); **O** returns to the overview |
-| Write | Click anywhere in a section and type: the cursor goes where you clicked, a Docs-style formatting bar appears (text style, bold, lists, checklist, link, image, table, code, maths, quote), it saves as you type and closes when you click elsewhere. `</>` switches to Markdown. The roadmap's title, description and goal are edited the same way. |
+| Write | Click anywhere in a section and type: the cursor goes where you clicked, a Docs-style formatting bar appears (text style, bold, italic, link, lists, and an **Insert** list for image, table, code, maths, quote and divider; in a narrow panel the rest is under **⋯**), it saves as you type and closes when you click elsewhere. `</>` switches to Markdown. The roadmap's title, description and goal are edited the same way. |
 | Progress | Set status yourself; learning roadmaps also have “can I explain / apply it?” |
 | Find | **Ctrl+K** searches titles and notes across all roadmaps |
-| Undo | **Ctrl+Z**; History (per checkpoint) restores any earlier version; deleted items go to Trash |
+| Undo and redo | **Ctrl+Z** undoes, **Ctrl+Y** (or Ctrl+Shift+Z) redoes, also from the map toolbar: renames, statuses, moves, links, deletes, sticky notes and positions. History (per checkpoint) restores any earlier version; deleted items go to Trash |
 
 Progress of a checkpoint = completed sub-checkpoints ÷ all sub-checkpoints at every level below it,
 ignoring optional and archived ones. A parent is never completed automatically.

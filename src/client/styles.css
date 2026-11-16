@@ -238,6 +238,12 @@ body {
   opacity: 0.25;
 }
 
+/* React Flow draws a box over a group selection; Waymark drags the group by any of its nodes instead,
+   so clicks and double-clicks still reach each node. */
+.react-flow__nodesselection {
+  display: none;
+}
+
 /* Map editing (React Flow handles; EasyConnect pattern). The blue dot starts a link; while a link is
    being dragged, the whole card of every other checkpoint is a drop target. */
 .react-flow__handle.wm-link-handle {
@@ -523,8 +529,10 @@ body {
   color: var(--danger);
 }
 
-/* Crepe's built-in fixed formatting bar, made compact (one strip in the side panel, like Docs). */
+/* Crepe's built-in fixed formatting bar, made compact: one row, with a "⋯" menu for what doesn't fit
+   (src/client/topBarFit.ts), like Google Docs. */
 .wm-editor .milkdown .milkdown-top-bar {
+  flex-wrap: nowrap;
   top: 0;
   min-height: 0;
   margin: 0 0 6px;
@@ -559,4 +567,69 @@ body {
 }
 .wm-editor .milkdown .milkdown-top-bar .top-bar-heading-label {
   min-width: 0;
+}
+/* The text-kind list keeps one width, so the bar doesn't shift as the caret moves between kinds. */
+.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-selector:first-child .top-bar-heading-label {
+  width: 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-inner {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.wm-editor .milkdown .milkdown-top-bar .wm-bar-more {
+  flex: none;
+  margin-left: auto;
+}
+.wm-editor .milkdown .milkdown-top-bar .wm-bar-more svg {
+  fill: var(--fg-muted);
+}
+.wm-bar-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 4px;
+  z-index: 30;
+  display: grid;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+.wm-bar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.wm-bar-menu-item:hover {
+  background: var(--surface-2);
+}
+.wm-bar-menu-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--fg-muted);
+  fill: var(--fg-muted);
+}
+.wm-bar-menu-item.active svg {
+  color: var(--accent);
+  fill: var(--accent);
+}
+/* Crepe draws the empty-editor hint with no height; leave room so a long hint in a narrow panel
+   doesn't run over the next section. */
+.wm-editor .milkdown .ProseMirror:has(> .crepe-placeholder) {
+  min-height: 6em;
+}
+/* "Insert" is last on the bar: open its list leftwards so it stays inside the panel. */
+.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-selector:last-child .top-bar-heading-dropdown {
+  left: auto;
+  right: 0;
 }

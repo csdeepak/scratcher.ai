@@ -7,6 +7,9 @@
 //    sub-checkpoint there; click an arrow to remove it
 //  - drop a checkpoint onto another to move it under that one; drop on empty space to place it by hand
 //  - right-click anything for its menu; sticky notes can go anywhere and stay next to their checkpoint
+//  - Shift+drag on empty space selects several (box), Ctrl/⌘/Shift+click adds or removes one; the group
+//    then moves, changes status or is deleted together, with one toolbar (React Flow's SelectedNodesToolbar
+//    example) and one Undo step
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -25,6 +28,7 @@ import {
   applyNodeChanges,
   getBezierPath,
   getNodesBounds,
+  SelectionMode,
   useConnection,
   useInternalNode,
   useReactFlow,
@@ -47,27 +51,34 @@ import {
   Plus,
   Map as MapIcon,
   Pause,
+  Redo2,
   StickyNote,
   Trash,
   Undo2,
   Unlink,
+  X,
 } from 'lucide-react';
 import { NOTE_COLORS, type Checkpoint, type MapNote, type NoteColor, type Roadmap } from '../../shared/model';
 import { getProfile, statusDef, type Profile } from '../../shared/profiles';
 import type { Progress } from '../../shared/tree';
 import { NODE_H, NODE_W, autoPosition, type Layout } from '../layout';
-import { getState, overview, selectCheckpoint, setExpandedAll, setFocus, setState, toggleExpanded, undoLast, useStore } from '../store';
+import { batch, getState, overview, redoLast, selectCheckpoint, setExpandedAll, setFocus, setState, toggleExpanded, undoLast, useStore } from '../store';
 import {
   addCheckpoint,
   addNote,
   addSibling,
   connect,
   deleteNote,
-  moveCheckpoint,
+  finishNote,
+  mapVisible,
+  moveMany,
   requestDelete,
+  requestDeleteMany,
   saveLayout,
   setStatus,
+  setStatusMany,
   startRename,
+  topLevel,
   unlink,
   updateFields,
   updateNote,
@@ -88,6 +99,8 @@ interface NodeData extends Record<string, unknown> {
   held: boolean;
   renaming: boolean;
   dropTarget: boolean;
+  /** Part of a group selection: the group toolbar replaces this node's own. */
+  inGroup: boolean;
 }
 
 interface NoteData extends Record<string, unknown> {
@@ -96,6 +109,7 @@ interface NoteData extends Record<string, unknown> {
   dimmed: boolean;
   /** Map position the note's dx/dy are relative to (its checkpoint, or the origin). */
   origin: { x: number; y: number };
+  inGroup: boolean;
 }
 
 type CPNode = Node<NodeData, 'checkpoint'>;
@@ -207,7 +221,7 @@ function NodeTools({ cp, profile }: { cp: Checkpoint; profile: Profile }) {
 }
 
 const CheckpointNode = memo(function CheckpointNode({ id, data, selected, dragging }: NodeProps<CPNode>) {
-  const { cp, profile, depth, childCount, open, dimmed, progress, unreviewed, held, renaming, dropTarget } = data;
+  const { cp, profile, depth, childCount, open, dimmed, progress, unreviewed, held, renaming, dropTarget, inGroup } = data;
   // While someone drags a link from another checkpoint, this whole card accepts the drop (EasyConnect pattern).
   const linkTarget = useConnection((c) => c.inProgress && c.fromNode.id !== id);
   const status = statusDef(profile, cp.status);
@@ -232,7 +246,7 @@ const CheckpointNode = memo(function CheckpointNode({ id, data, selected, draggi
   const brightFill = main && status.category !== 'review';
   return (
     <>
-      <NodeToolbar isVisible={selected && !renaming && !dragging} position={Position.Top} offset={10} align="start">
+      <NodeToolbar isVisible={selected && !inGroup && !renaming && !dragging} position={Position.Top} offset={10} align="start">
         <NodeTools cp={cp} profile={profile} />
       </NodeToolbar>
       <div
@@ -324,6 +338,44 @@ const CheckpointNode = memo(function CheckpointNode({ id, data, selected, draggi
   );
 });
 
+function GroupTools({ profile, cps, notes, onDelete, onClear }: { profile: Profile; cps: string[]; notes: number; onDelete: () => void; onClear: () => void }) {
+  const btn = 'inline-flex h-7 items-center justify-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-fg';
+  const parts = [cps.length && `${cps.length} checkpoint${cps.length === 1 ? '' : 's'}`, notes && `${notes} note${notes === 1 ? '' : 's'}`].filter(Boolean);
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg border-[1.5px] border-ink/80 bg-surface p-0.5 shadow-md">
+      <span className="px-2 text-[12px] font-semibold text-fg">{parts.join(', ')}</span>
+      <span className="mx-0.5 h-5 w-px bg-line" />
+      {cps.length > 0 && (
+        <Menu.Root>
+          <Menu.Trigger asChild>
+            <button className={btn} aria-label="Set the status of the selected checkpoints">
+              <StatusIcon category="active" size={14} /> Status
+            </button>
+          </Menu.Trigger>
+          <Menu.Content align="start">
+            <Menu.Label>Set for all {cps.length}</Menu.Label>
+            {profile.statuses.map((s) => (
+              <Menu.Item key={s.key} onSelect={() => setStatusMany(cps, s.key)}>
+                <StatusIcon category={s.category} size={14} /> {s.label}
+              </Menu.Item>
+            ))}
+          </Menu.Content>
+        </Menu.Root>
+      )}
+      <Tip label="Delete them (Del)">
+        <button className={cx(btn, 'hover:!text-danger')} aria-label="Delete the selection" onClick={onDelete}>
+          <Trash size={14} />
+        </button>
+      </Tip>
+      <Tip label="Clear the selection (Esc)">
+        <button className={btn} aria-label="Clear the selection" onClick={onClear}>
+          <X size={14} />
+        </button>
+      </Tip>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ sticky note node
 
 function NoteEditor({ note }: { note: MapNote }) {
@@ -333,8 +385,7 @@ function NoteEditor({ note }: { note: MapNote }) {
     if (done.current) return;
     done.current = true;
     setState({ noteEdit: null });
-    if (!v.trim()) return deleteNote(note.id);
-    if (v !== note.text) updateNote(note.id, { text: v });
+    finishNote(note.id, v);
   };
   return (
     <textarea
@@ -357,24 +408,24 @@ function NoteEditor({ note }: { note: MapNote }) {
 }
 
 const NoteNodeView = memo(function NoteNodeView({ data, selected, dragging }: NodeProps<NoteNode>) {
-  const { note, editing, dimmed, origin } = data;
+  const { note, editing, dimmed, origin, inGroup } = data;
   return (
     <>
       <NodeResizer
-        isVisible={selected && !editing}
+        isVisible={selected && !inGroup && !editing}
         minWidth={140}
         minHeight={70}
         color="var(--accent)"
-        onResizeEnd={(_, p) => updateNote(note.id, { w: Math.round(p.width), h: Math.round(p.height), dx: Math.round(p.x - origin.x), dy: Math.round(p.y - origin.y) })}
+        onResizeEnd={(_, p) => updateNote(note.id, { w: Math.round(p.width), h: Math.round(p.height), dx: Math.round(p.x - origin.x), dy: Math.round(p.y - origin.y) }, 'resize sticky note')}
       />
-      <NodeToolbar isVisible={selected && !editing && !dragging} position={Position.Top} offset={10} align="start">
+      <NodeToolbar isVisible={selected && !inGroup && !editing && !dragging} position={Position.Top} offset={10} align="start">
         <div className="flex items-center gap-1 rounded-lg border-[1.5px] border-ink/80 bg-surface p-1 shadow-md">
           {NOTE_COLORS.map((c) => (
             <button
               key={c}
               aria-label={`${c} note`}
               title={c[0]!.toUpperCase() + c.slice(1)}
-              onClick={() => updateNote(note.id, { color: c })}
+              onClick={() => updateNote(note.id, { color: c }, 'note colour')}
               className={cx('size-5 rounded-full border border-ink/40', note.color === c && 'ring-2 ring-accent ring-offset-1 ring-offset-surface')}
               style={{ background: NOTE_FILL[c] }}
             />
@@ -469,19 +520,28 @@ const isTypingTarget = (t: EventTarget | null) => {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 };
 
+type Point = { id: string; x: number; y: number };
+const pointsOf = (layout: Layout): Point[] => layout.nodes.map((n) => ({ id: n.cp.id, x: n.x, y: n.y }));
+
 /** Where to keep a sticky note so it stays next to the nearest visible checkpoint. */
-function placeNote(layout: Layout, x: number, y: number, w = 208, h = 120): { anchor: string | null; dx: number; dy: number } {
-  let best: { id: string; x: number; y: number; d: number } | null = null;
+function placeNote(points: Point[], x: number, y: number, w = 208, h = 120): { anchor: string | null; dx: number; dy: number } {
+  let best: (Point & { d: number }) | null = null;
   const cx0 = x + w / 2;
   const cy0 = y + h / 2;
-  for (const n of layout.nodes) {
+  for (const n of points) {
     const d = Math.hypot(n.x + NODE_W / 2 - cx0, n.y + NODE_H / 2 - cy0);
-    if (!best || d < best.d) best = { id: n.cp.id, x: n.x, y: n.y, d };
+    if (!best || d < best.d) best = { ...n, d };
   }
   return best ? { anchor: best.id, dx: Math.round(x - best.x), dy: Math.round(y - best.y) } : { anchor: null, dx: Math.round(x), dy: Math.round(y) };
 }
 
-type MenuTarget = { kind: 'node'; id: string } | { kind: 'note'; id: string } | { kind: 'edge'; first: string; then: string } | { kind: 'pane'; x: number; y: number } | null;
+type MenuTarget =
+  | { kind: 'node'; id: string }
+  | { kind: 'note'; id: string }
+  | { kind: 'edge'; first: string; then: string }
+  | { kind: 'pane'; x: number; y: number }
+  | { kind: 'group' }
+  | null;
 
 export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layout; progress: Map<string | null, Progress> }) {
   const selectedId = useStore((s) => s.selectedId);
@@ -498,6 +558,12 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuTarget>(null);
+  // Group selection (node ids: checkpoint ids and note:… ids). Used while two or more are selected, and
+  // while a selection box is being drawn; otherwise the single selection above (and the store's) applies.
+  const [group, setGroup] = useState<string[]>([]);
+  const boxing = useRef(false);
+  const boxed = useRef(new Set<string>());
+  const inGroup = group.length > 1;
 
   const { unreviewed, held } = useMemo(() => {
     const u = new Set<string>();
@@ -511,6 +577,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   }, [reviewItems, rm.meta.id]);
 
   const notes = rm.layout?.notes;
+  const groupSet = useMemo(() => new Set(group), [group]);
   const derived: AnyNode[] = useMemo(() => {
     const cpNodes: CPNode[] = layout.nodes.map((n) => ({
       id: n.cp.id,
@@ -518,7 +585,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
       position: { x: n.x, y: n.y },
       width: NODE_W,
       height: NODE_H,
-      selected: n.cp.id === selectedId,
+      selected: group.length ? groupSet.has(n.cp.id) : n.cp.id === selectedId,
       zIndex: 2,
       ariaLabel: `${n.cp.title}, ${statusDef(profile, n.cp.status).label}`,
       data: {
@@ -533,6 +600,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
         held: held.has(n.cp.id),
         renaming: mapRename === n.cp.id,
         dropTarget: dropTarget === n.cp.id,
+        inGroup,
       },
     }));
     // A note sits next to its checkpoint; while that checkpoint is hidden (collapsed, or deleted to Trash) so is the note.
@@ -552,15 +620,15 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
           position: { x: origin.x + note.dx, y: origin.y + note.dy },
           width: note.w,
           height: note.h,
-          selected: selectedNote === note.id,
+          selected: group.length ? groupSet.has(noteNodeId(note.id)) : selectedNote === note.id,
           zIndex: 1,
           ariaLabel: `Sticky note: ${note.text.slice(0, 60) || 'empty'}`,
-          data: { note, editing: noteEdit === note.id, dimmed, origin },
+          data: { note, editing: noteEdit === note.id, dimmed, origin, inGroup },
         },
       ];
     });
     return [...noteNodes, ...cpNodes];
-  }, [layout, selectedId, profile, progress, unreviewed, held, mapRename, dropTarget, notes, selectedNote, noteEdit]);
+  }, [layout, selectedId, profile, progress, unreviewed, held, mapRename, dropTarget, notes, selectedNote, noteEdit, group, groupSet, inGroup]);
 
   const [nodes, setNodes] = useState<AnyNode[]>(derived);
   const [capturing, setCapturing] = useState(false);
@@ -598,10 +666,25 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   useEffect(() => {
     if (selectedNote && !notes?.some((n) => n.id === selectedNote)) setSelectedNote(null);
   }, [notes, selectedNote]);
+  useEffect(() => {
+    if (!group.length || boxing.current) return;
+    const exists = (id: string) => (isNoteNode({ id }) ? notes?.some((n) => noteNodeId(n.id) === id) : layout.byId.has(id));
+    const left = group.filter(exists);
+    if (left.length !== group.length) setGroup(left.length > 1 ? left : []);
+  }, [group, notes, layout]);
+  // Selecting one checkpoint anywhere else (outline, keys, search) ends the group selection.
+  useEffect(() => {
+    if (selectedId && !boxing.current) setGroup([]);
+  }, [selectedId]);
 
   const onNodesChange = useCallback((changes: NodeChange<AnyNode>[]) => {
     const keep = changes.filter((c) => c.type === 'position' || c.type === 'dimensions');
     if (keep.length) setNodes((nds) => applyNodeChanges(keep, nds));
+    // While a selection box is drawn, React Flow reports what it covers (the Figma example's pattern).
+    if (boxing.current && changes.some((c) => c.type === 'select')) {
+      for (const c of changes) if (c.type === 'select') (c.selected ? boxed.current.add(c.id) : boxed.current.delete(c.id));
+      setGroup([...boxed.current]);
+    }
   }, []);
 
   const clearMapSelection = () => {
@@ -609,28 +692,63 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
     setSelectedNote(null);
   };
 
+  /** Make `ids` the selection: two or more become a group, one becomes the normal selection. */
+  const select = useCallback((ids: string[]) => {
+    if (ids.length > 1) {
+      setSelectedEdge(null);
+      setSelectedNote(null);
+      if (getState().selectedId) selectCheckpoint(null);
+      setGroup(ids);
+      return;
+    }
+    setGroup([]);
+    setSelectedEdge(null);
+    const one = ids[0];
+    if (one && isNoteNode({ id: one })) {
+      selectCheckpoint(null);
+      setSelectedNote(one.slice(NOTE_PREFIX.length));
+    } else {
+      setSelectedNote(null);
+      selectCheckpoint(one ?? null);
+    }
+  }, []);
+
+  /** Ctrl/⌘/Shift+click: add a node to the selection, or take it out. */
+  const toggleSelected = (id: string) => {
+    const current = group.length ? group : [getState().selectedId, selectedNote && noteNodeId(selectedNote)].filter((x): x is string => !!x);
+    select(current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
+  };
+
+  const groupCps = group.filter((id) => !isNoteNode({ id }));
+  const groupNotes = group.filter((id) => isNoteNode({ id })).map((id) => id.slice(NOTE_PREFIX.length));
+  const deleteGroup = () => {
+    requestDeleteMany(groupCps, groupNotes);
+    setGroup([]);
+  };
+
   // ---------------------------------------------------------------- dragging
 
-  const dragStart = useRef<{ id: string; x: number; y: number; descendants: Map<string, { x: number; y: number }> } | null>(null);
+  /** Where each dragged node started, and the sub-checkpoints that move along with them. */
+  const dragStart = useRef<{ starts: Map<string, { x: number; y: number }>; followers: Map<string, { x: number; y: number }>; sameParent: string | null } | null>(null);
   const dropRef = useRef<string | null>(null);
 
   const onNodeDragStart = useCallback(
-    (_: unknown, node: AnyNode) => {
-      const descendants = new Map<string, { x: number; y: number }>();
-      if (!isNoteNode(node)) {
-        const cps = rm.checkpoints;
-        for (const n of layout.nodes) {
-          let p = n.cp.parent;
-          while (p) {
-            if (p === node.id) {
-              descendants.set(n.cp.id, { x: n.x, y: n.y });
-              break;
-            }
-            p = cps[p]?.parent ?? null;
+    (_: unknown, node: AnyNode, dragged: AnyNode[]) => {
+      const moving = dragged.length ? dragged : [node];
+      const starts = new Map(moving.map((n) => [n.id, { x: n.position.x, y: n.position.y }]));
+      const followers = new Map<string, { x: number; y: number }>();
+      const cps = rm.checkpoints;
+      for (const n of layout.nodes) {
+        if (starts.has(n.cp.id)) continue;
+        for (let p = n.cp.parent; p; p = cps[p]?.parent ?? null) {
+          if (starts.has(p)) {
+            followers.set(n.cp.id, { x: n.x, y: n.y });
+            break;
           }
         }
       }
-      dragStart.current = { id: node.id, x: node.position.x, y: node.position.y, descendants };
+      const parents = new Set(moving.filter((n) => !isNoteNode(n)).map((n) => cps[n.id]?.parent ?? null));
+      dragStart.current = { starts, followers, sameParent: parents.size === 1 ? [...parents][0]! : null };
     },
     [layout, rm.checkpoints],
   );
@@ -638,51 +756,69 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   const onNodeDrag = useCallback(
     (e: React.MouseEvent | MouseEvent | TouchEvent, node: AnyNode) => {
       const d = dragStart.current;
-      if (!d || d.id !== node.id || isNoteNode(node)) return;
-      const dx = node.position.x - d.x;
-      const dy = node.position.y - d.y;
-      if (d.descendants.size) {
-        setNodes((nds) => nds.map((n) => (d.descendants.has(n.id) ? { ...n, position: { x: d.descendants.get(n.id)!.x + dx, y: d.descendants.get(n.id)!.y + dy } } : n)));
+      const s0 = d?.starts.get(node.id);
+      if (!d || !s0) return;
+      const dx = node.position.x - s0.x;
+      const dy = node.position.y - s0.y;
+      if (d.followers.size) {
+        setNodes((nds) => nds.map((n) => (d.followers.has(n.id) ? { ...n, position: { x: d.followers.get(n.id)!.x + dx, y: d.followers.get(n.id)!.y + dy } } : n)));
       }
+      if (isNoteNode(node)) return;
       // Pointer over another checkpoint → "move under it" (Intersection example, by pointer for precision).
       const pt = 'clientX' in e ? { x: e.clientX, y: e.clientY } : { x: e.touches[0]?.clientX ?? 0, y: e.touches[0]?.clientY ?? 0 };
       const p = flow.screenToFlowPosition(pt);
-      const parent = rm.checkpoints[node.id]?.parent;
-      const hit = layout.nodes.find((n) => n.cp.id !== node.id && n.cp.id !== parent && !d.descendants.has(n.cp.id) && p.x >= n.x && p.x <= n.x + NODE_W && p.y >= n.y && p.y <= n.y + NODE_H);
+      const hit = layout.nodes.find(
+        (n) => !d.starts.has(n.cp.id) && !d.followers.has(n.cp.id) && n.cp.id !== d.sameParent && p.x >= n.x && p.x <= n.x + NODE_W && p.y >= n.y && p.y <= n.y + NODE_H,
+      );
       const target = hit?.cp.id ?? null;
       if (target !== dropRef.current) {
         dropRef.current = target;
         setDropTarget(target);
       }
     },
-    [flow, layout, rm.checkpoints],
+    [flow, layout],
   );
 
   const onNodeDragStop = useCallback(
-    (_: unknown, node: AnyNode) => {
+    (_: unknown, node: AnyNode, dragged: AnyNode[]) => {
       const d = dragStart.current;
       dragStart.current = null;
       const target = dropRef.current;
       dropRef.current = null;
       setDropTarget(null);
-      if (!d || (Math.abs(node.position.x - d.x) < 2 && Math.abs(node.position.y - d.y) < 2)) return;
-      if (isNoteNode(node)) {
-        const note = (node as NoteNode).data.note;
-        updateNote(note.id, placeNote(layout, node.position.x, node.position.y, note.w, note.h));
-        return;
-      }
-      const offsets = { ...(rm.layout?.offsets ?? {}) };
-      if (target) {
-        // Re-parent: it now follows the automatic layout under its new parent.
-        delete offsets[node.id];
-        saveLayout({ offsets });
-        moveCheckpoint(node.id, target);
-        return;
-      }
-      const auto = autoPosition(layout, rm, node.id);
-      if (!auto) return;
-      offsets[node.id] = { dx: node.position.x - auto.x, dy: node.position.y - auto.y };
-      saveLayout({ offsets });
+      const s0 = d?.starts.get(node.id);
+      if (!d || !s0 || (Math.abs(node.position.x - s0.x) < 2 && Math.abs(node.position.y - s0.y) < 2)) return;
+      const dx = node.position.x - s0.x;
+      const dy = node.position.y - s0.y;
+      const moving = dragged.length ? dragged : [node];
+      const noteNodes = moving.filter(isNoteNode) as NoteNode[];
+      // A checkpoint whose parent moves too just goes along (offsets add up down the tree).
+      const top = topLevel(moving.filter((n) => !isNoteNode(n)).map((n) => n.id));
+      const label =
+        moving.length > 1 ? `move ${moving.length} items` : noteNodes.length ? 'move sticky note' : `move “${rm.checkpoints[node.id]?.title ?? 'checkpoint'}”`;
+      batch(label, () => {
+        if (noteNodes.length) {
+          // Place notes against where the checkpoints are now, so a note dragged with its checkpoint stays put.
+          const points = layout.nodes.map((n) => (d.starts.has(n.cp.id) || d.followers.has(n.cp.id) ? { id: n.cp.id, x: n.x + dx, y: n.y + dy } : { id: n.cp.id, x: n.x, y: n.y }));
+          const placed = new Map(noteNodes.map((n) => [n.data.note.id, placeNote(points, n.position.x, n.position.y, n.data.note.w, n.data.note.h)]));
+          saveLayout({ notes: (rm.layout?.notes ?? []).map((n) => (placed.has(n.id) ? { ...n, ...placed.get(n.id)! } : n)) }, label);
+        }
+        if (!top.length) return;
+        const offsets = { ...(rm.layout?.offsets ?? {}) };
+        if (target) {
+          // Re-parent: they now follow the automatic layout under their new parent.
+          for (const id of top) delete offsets[id];
+          saveLayout({ offsets }, label);
+          moveMany(top, target);
+          return;
+        }
+        for (const id of top) {
+          const auto = autoPosition(layout, rm, id);
+          const now = moving.find((n) => n.id === id)!.position;
+          if (auto) offsets[id] = { dx: now.x - auto.x, dy: now.y - auto.y };
+        }
+        saveLayout({ offsets }, label);
+      });
     },
     [layout, rm],
   );
@@ -758,20 +894,22 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
     return out;
   }, [layout, selectedId, prereqMode, selectedEdge]);
 
-  // Delete / Escape for a selected arrow or sticky note (runs before the app's checkpoint shortcuts).
+  // Delete / Escape for a group, a selected arrow or a sticky note (runs before the app's checkpoint shortcuts).
   useEffect(() => {
-    if (!selectedEdge && !selectedNote) return;
+    if (!selectedEdge && !selectedNote && !inGroup) return;
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target) || document.querySelector('[role="dialog"], [role="menu"]')) return;
       if (e.key === 'Escape') {
         clearMapSelection();
+        setGroup([]);
         e.stopPropagation();
         return;
       }
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       e.preventDefault();
       e.stopPropagation();
-      if (selectedNote) deleteNote(selectedNote);
+      if (inGroup) deleteGroup();
+      else if (selectedNote) deleteNote(selectedNote);
       else if (selectedEdge) {
         const edge = edges.find((x) => x.id === selectedEdge);
         if (edge) unlink(edge.target, edge.source);
@@ -780,7 +918,20 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [selectedEdge, selectedNote, edges]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEdge, selectedNote, inGroup, edges, group]);
+
+  // Ctrl/⌘+A: select everything on the map (when the map is on screen and you aren't typing).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'a' || e.shiftKey || e.altKey) return;
+      if (isTypingTarget(e.target) || document.querySelector('[role="dialog"], [role="menu"]') || !mapVisible()) return;
+      e.preventDefault();
+      select([...layout.nodes.filter((n) => !n.dimmed).map((n) => n.cp.id), ...nodes.filter(isNoteNode).map((n) => n.id)]);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [layout, nodes, select]);
 
   // Refit when the map's area changes size (panels opened or closed, window resized),
   // unless you have panned or zoomed yourself since the last fit.
@@ -845,7 +996,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
         const c = flow.screenToFlowPosition({ x: (r?.left ?? 0) + (r?.width ?? 600) / 2, y: (r?.top ?? 0) + (r?.height ?? 400) / 2 });
         pos = { x: c.x - 104, y: c.y - 60 };
       }
-      const id = addNote(placeNote(layout, pos.x, pos.y));
+      const id = addNote(placeNote(pointsOf(layout), pos.x, pos.y));
       if (id) {
         selectCheckpoint(null);
         setSelectedEdge(null);
@@ -871,7 +1022,9 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
-            onNodeClick={(_, n) => {
+            onNodeClick={(e, n) => {
+              if (e.shiftKey || e.ctrlKey || e.metaKey) return toggleSelected(n.id);
+              setGroup([]);
               if (isNoteNode(n)) {
                 selectCheckpoint(null);
                 setSelectedEdge(null);
@@ -890,15 +1043,31 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
             }}
             onEdgeClick={(_, e) => {
               if (e.type !== 'prereq') return;
+              setGroup([]);
               selectCheckpoint(null);
               setSelectedNote(null);
               setSelectedEdge(e.id);
             }}
             onPaneClick={() => {
               clearMapSelection();
+              setGroup([]);
               selectCheckpoint(null);
             }}
+            onSelectionStart={() => {
+              boxing.current = true;
+              boxed.current = new Set();
+              clearMapSelection();
+              setGroup([]);
+              if (getState().selectedId) selectCheckpoint(null);
+            }}
+            onSelectionEnd={() => {
+              boxing.current = false;
+              // Two or more stay a group; one becomes the normal selection.
+              select([...boxed.current]);
+            }}
             onNodeContextMenu={(_, n) => {
+              if (inGroup && groupSet.has(n.id)) return setMenu({ kind: 'group' });
+              setGroup([]);
               if (isNoteNode(n)) {
                 const id = n.id.slice(NOTE_PREFIX.length);
                 setSelectedNote(id);
@@ -934,10 +1103,14 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
             onlyRenderVisibleElements={nodes.length > 150 && !capturing}
             zoomOnDoubleClick={false}
             deleteKeyCode={null}
-            selectionKeyCode={null}
+            selectionKeyCode="Shift"
+            selectionMode={SelectionMode.Partial}
             multiSelectionKeyCode={null}
             disableKeyboardA11y
           >
+            <NodeToolbar nodeId={group} isVisible={inGroup && !dropTarget} position={Position.Top} offset={12}>
+              <GroupTools profile={profile} cps={groupCps} notes={groupNotes.length} onDelete={deleteGroup} onClear={() => setGroup([])} />
+            </NodeToolbar>
             <Background variant={BackgroundVariant.Lines} gap={28} lineWidth={1} color="var(--canvas-grid)" />
             <Controls showInteractive={false} position="bottom-left" />
             <MiniMap
@@ -999,6 +1172,32 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
               </CtxMenu.Item>
             </>
           )}
+          {menu?.kind === 'group' && inGroup && (
+            <>
+              <CtxMenu.Label>{group.length} selected</CtxMenu.Label>
+              {groupCps.length > 0 && (
+                <CtxMenu.Sub>
+                  <CtxMenu.SubTrigger>
+                    <StatusIcon category="active" size={14} /> Status
+                  </CtxMenu.SubTrigger>
+                  <CtxMenu.SubContent>
+                    {profile.statuses.map((st) => (
+                      <CtxMenu.Item key={st.key} onSelect={() => setStatusMany(groupCps, st.key)}>
+                        <StatusIcon category={st.category} size={14} /> {st.label}
+                      </CtxMenu.Item>
+                    ))}
+                  </CtxMenu.SubContent>
+                </CtxMenu.Sub>
+              )}
+              <CtxMenu.Item onSelect={() => setGroup([])} hint="Esc">
+                <X size={14} /> Clear the selection
+              </CtxMenu.Item>
+              <CtxMenu.Separator />
+              <CtxMenu.Item danger onSelect={deleteGroup} hint="Del">
+                <Trash size={14} /> Delete {group.length} items…
+              </CtxMenu.Item>
+            </>
+          )}
           {menu?.kind === 'note' && menuNote && (
             <>
               <CtxMenu.Item onSelect={() => setState({ noteEdit: menuNote.id })}>
@@ -1010,7 +1209,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
                 </CtxMenu.SubTrigger>
                 <CtxMenu.SubContent>
                   {NOTE_COLORS.map((c) => (
-                    <CtxMenu.Item key={c} onSelect={() => updateNote(menuNote.id, { color: c })}>
+                    <CtxMenu.Item key={c} onSelect={() => updateNote(menuNote.id, { color: c }, 'note colour')}>
                       <span className="size-3.5 rounded-full border border-ink/40" style={{ background: NOTE_FILL[c] }} /> {c[0]!.toUpperCase() + c.slice(1)}
                     </CtxMenu.Item>
                   ))}
@@ -1060,7 +1259,8 @@ function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
   const focusId = useStore((s) => s.focusId);
   const selectedId = useStore((s) => s.selectedId);
   const prereqMode = useStore((s) => s.prereqMode);
-  const canUndo = useStore((s) => s.undoStack.length > 0);
+  const undoLabel = useStore((s) => s.undoStack[s.undoStack.length - 1]?.label);
+  const redoLabel = useStore((s) => s.redoStack[s.redoStack.length - 1]?.label);
   const focusTitle = focusId ? rm.checkpoints[focusId]?.title : null;
   return (
     <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-start gap-2">
@@ -1083,8 +1283,11 @@ function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
           </Button>
         </Tip>
         <span className="mx-1 h-5 w-px bg-line" />
-        <IconButton size="sm" label="Undo (Ctrl+Z)" disabled={!canUndo} onClick={() => void undoLast()}>
+        <IconButton size="sm" label={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'} disabled={!undoLabel} onClick={() => void undoLast()}>
           <Undo2 size={15} />
+        </IconButton>
+        <IconButton size="sm" label={redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : 'Nothing to redo'} disabled={!redoLabel} onClick={() => void redoLast()}>
+          <Redo2 size={15} />
         </IconButton>
         <IconButton size="sm" label={selectedId ? 'Focus on the selection (F)' : 'Select a checkpoint to focus on it'} disabled={!selectedId} onClick={() => selectedId && setFocus(selectedId)}>
           <Focus size={15} />
@@ -1109,7 +1312,7 @@ function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
               <Menu.RadioItem value="selected">Only for the selection</Menu.RadioItem>
             </Menu.RadioGroup>
             <Menu.Separator />
-            <Menu.Item onSelect={() => saveLayout({ offsets: {} })} disabled={!Object.keys(rm.layout?.offsets ?? {}).length}>
+            <Menu.Item onSelect={() => saveLayout({ offsets: {} }, 'reset positions')} disabled={!Object.keys(rm.layout?.offsets ?? {}).length}>
               Reset manual positions
             </Menu.Item>
           </Menu.Content>
@@ -1176,6 +1379,7 @@ function Legend() {
             <div className="font-medium text-fg">Editing the map</div>
             <div>Double-click a checkpoint to rename it. Drag its blue dot to another checkpoint to link them, or to empty space to add a sub-checkpoint.</div>
             <div>Drop a checkpoint onto another to move it under that one. Right-click anything for more.</div>
+            <div>Shift+drag on empty space, or Ctrl+click, to select several and move, mark or delete them together.</div>
           </div>
         </div>
       </Menu.Content>

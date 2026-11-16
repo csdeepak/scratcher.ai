@@ -380,8 +380,11 @@ function ShortcutsDialog() {
     ['F', 'Focus on this branch'],
     ['O', 'Overview (show everything)'],
     ['R', 'Open Review'],
-    ['Delete', 'Delete the selected checkpoint, arrow or sticky note (with Undo)'],
+    ['Delete', 'Delete what is selected: checkpoints, an arrow or sticky notes (with Undo)'],
     ['Ctrl Z', 'Undo'],
+    ['Ctrl Y / Ctrl Shift Z', 'Redo'],
+    ['Ctrl A', 'Select everything on the map'],
+    ['Shift-drag / Ctrl-click', 'Select several on the map (box, or one at a time)'],
     ['Esc', 'Close panel / clear selection'],
     ['?', 'This list'],
   ];

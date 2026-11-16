@@ -4,7 +4,7 @@
 
 import { create } from 'zustand';
 import { toast } from 'sonner';
-import type { FieldPath, Problem, Roadmap, RoadmapSummary } from '../shared/model';
+import type { FieldPath, LayoutOffsets, MapNote, Problem, Roadmap, RoadmapSummary } from '../shared/model';
 import { applyOps, type Op, type OpResult } from '../shared/ops';
 import { ancestors } from '../shared/tree';
 import type { ReviewItem } from '../server/review';
@@ -28,11 +28,18 @@ export interface Conflict {
   yours: unknown;
 }
 
-interface UndoEntry {
+/** One part of an undoable change. Applying it returns its opposite (see "undo / redo" below). */
+export type HistoryStep =
+  | { kind: 'ops'; ops: Op[]; inverse: Op[] }
+  | { kind: 'delete'; ids: string[] }
+  | { kind: 'restore'; trashId: string; ids: string[] }
+  | { kind: 'layout'; offsets?: LayoutOffsets; notes?: MapNote[] };
+
+export interface HistoryEntry {
   label: string;
   roadmapId: string;
-  ops?: Op[];
-  trashId?: string;
+  /** In the order they were recorded; applied last to first. */
+  steps: HistoryStep[];
 }
 
 interface OpsResponse {
@@ -67,7 +74,8 @@ interface State {
   outbox: OutboxEntry[];
   review: { items: ReviewItem[]; proposals: ProposalView[] };
   conflicts: Conflict[];
-  undoStack: UndoEntry[];
+  undoStack: HistoryEntry[];
+  redoStack: HistoryEntry[];
   outlineOpen: boolean;
   outlineDrawer: boolean;
   detailsOpen: boolean;
@@ -83,8 +91,8 @@ interface State {
   mapRename: string | null;
   /** Sticky note whose text is being edited on the map. */
   noteEdit: string | null;
-  /** Checkpoint waiting for "Delete?" confirmation. */
-  pendingDelete: string | null;
+  /** Checkpoints (and sticky notes) waiting for "Delete?" confirmation. */
+  pendingDelete: { ids: string[]; notes: string[] } | null;
   theme: 'system' | 'light' | 'dark';
 }
 
@@ -145,6 +153,7 @@ export const useStore = create<State>(() => ({
   review: { items: [], proposals: [] },
   conflicts: [],
   undoStack: [],
+  redoStack: [],
   outlineOpen: (() => {
     try {
       const v = localStorage.getItem('waymark.outlineOpen');
@@ -277,7 +286,7 @@ async function loadRoadmap(id: string) {
     } catch {
       expanded = defaultExpanded(rm);
     }
-    set({ roadmap: withOutbox(rm), expanded, selectedId: null, focusId: null, undoStack: [], conflicts: [], fitRequest: get().fitRequest + 1 });
+    set({ roadmap: withOutbox(rm), expanded, selectedId: null, focusId: null, undoStack: [], redoStack: [], conflicts: [], fitRequest: get().fitRequest + 1 });
   } catch (e) {
     set({ roadmap: null, loadError: (e as Error).message });
   }
@@ -387,25 +396,37 @@ const waiters = new Map<string, { resolve: (r: OpsResponse | null) => void }>();
 
 /**
  * Apply ops optimistically and queue them for the server. Resolves with the server's response
- * once saved (or null if it could not be saved).
+ * once saved (or null if it could not be saved). With `undo`, Ctrl+Z applies those ops.
  */
 export function submit(ops: Op[], opts: { undo?: Op[] | null; label?: string } = {}): Promise<OpsResponse | null> {
+  const r = enqueue(ops);
+  if (r.error) toast.error(r.error);
+  else if (opts.undo) recordUndo(opts.label ?? 'change', { kind: 'ops', ops: opts.undo, inverse: ops });
+  return r.done;
+}
+
+function enqueue(ops: Op[]): { error?: string; done: Promise<OpsResponse | null> } {
   const rm = get().roadmap;
-  if (!rm || !ops.length) return Promise.resolve(null);
+  if (!rm || !ops.length) return { done: Promise.resolve(null) };
   const res = applyOps(rm.meta, rm.checkpoints, ops, { source: 'app' });
   const failed = res.results.find((r) => !r.ok && !r.conflicts);
-  if (failed) {
-    toast.error(failed.error ?? 'That change is not possible.');
-    return Promise.resolve(null);
-  }
+  if (failed) return { error: failed.error ?? 'That change is not possible.', done: Promise.resolve(null) };
   const key = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const outbox = [...get().outbox, { key, roadmapId: rm.meta.id, ops }];
   saveOutbox(outbox);
-  const undoStack = opts.undo ? [...get().undoStack.slice(-49), { label: opts.label ?? 'change', roadmapId: rm.meta.id, ops: opts.undo }] : get().undoStack;
-  set({ roadmap: { ...rm, checkpoints: res.checkpoints }, outbox, saveState: 'saving', undoStack });
-  const p = new Promise<OpsResponse | null>((resolve) => waiters.set(key, { resolve }));
+  set({ roadmap: { ...rm, checkpoints: res.checkpoints }, outbox, saveState: 'saving' });
+  const done = new Promise<OpsResponse | null>((resolve) => waiters.set(key, { resolve }));
   void flushOutbox();
-  return p;
+  return { done };
+}
+
+/** Save manual positions and/or sticky notes (optimistic: the map updates at once). Not recorded for Undo. */
+export function writeLayout(patch: { offsets?: LayoutOffsets; notes?: MapNote[] }) {
+  const rm = get().roadmap;
+  if (!rm) return;
+  const layout = { schema: 'waymark-layout/1' as const, offsets: patch.offsets ?? rm.layout?.offsets ?? {}, notes: patch.notes ?? rm.layout?.notes ?? [] };
+  set({ roadmap: { ...rm, layout } });
+  http.put(`/api/roadmaps/${encodeURIComponent(rm.meta.id)}/layout`, { offsets: layout.offsets, notes: layout.notes }).catch((e: Error) => toast.error(`Couldn't save the map: ${e.message}`));
 }
 
 export async function flushOutbox() {
@@ -460,32 +481,111 @@ export function clearConflict(cpId: string, field: FieldPath) {
   set({ conflicts: get().conflicts.filter((c) => !(c.cpId === cpId && c.field === field)) });
 }
 
-export function pushUndo(entry: UndoEntry) {
-  set({ undoStack: [...get().undoStack.slice(-49), entry] });
+// ---------------------------------------------------------------- undo / redo
+// Two stacks, as in draw.io's mxUndoManager and Excalidraw's History (both open source): a new change
+// clears Redo, and undoing an entry applies its steps and puts their opposites on the Redo stack, so
+// Redo is "undo the undo". Edits made inside batch() undo together (mxGraph's beginUpdate/endUpdate).
+
+const HISTORY_LIMIT = 100;
+let batchSteps: HistoryStep[] | null = null;
+
+/** Remember how to undo a change that was just made. */
+export function recordUndo(label: string, step: HistoryStep) {
+  if (batchSteps) batchSteps.push(step);
+  else recordEntry(label, [step]);
 }
 
-export async function undoLast() {
-  const stack = get().undoStack;
-  const last = stack[stack.length - 1];
-  if (!last) {
-    toast('Nothing to undo.');
-    return;
-  }
-  set({ undoStack: stack.slice(0, -1) });
-  if (last.trashId) {
-    try {
-      await http.post(`/api/trash/${last.trashId}/restore`);
-      toast.success(`Undid: ${last.label}`);
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-    return;
-  }
-  if (last.ops && get().roadmap?.meta.id === last.roadmapId) {
-    await submit(last.ops, { undo: null });
-    toast.success(`Undid: ${last.label}`);
+/** Record several steps as one Undo entry (for changes that finish after a server round trip). */
+export function recordEntry(label: string, steps: HistoryStep[], roadmapId = get().roadmap?.meta.id) {
+  if (!roadmapId || !steps.length) return;
+  set({ undoStack: [...get().undoStack.slice(1 - HISTORY_LIMIT), { label, roadmapId, steps }], redoStack: [] });
+}
+
+/** Run several edits as one Undo step. */
+export function batch<T>(label: string, fn: () => T): T {
+  if (batchSteps) return fn();
+  batchSteps = [];
+  try {
+    return fn();
+  } finally {
+    const steps = batchSteps;
+    batchSteps = null;
+    recordEntry(label, steps);
   }
 }
+
+/** Apply one step; returns its opposite, or an error when it no longer applies. */
+async function perform(step: HistoryStep, roadmapId: string): Promise<HistoryStep | { error: string }> {
+  const rm = get().roadmap;
+  if (!rm || rm.meta.id !== roadmapId) return { error: 'that roadmap is no longer open.' };
+  switch (step.kind) {
+    case 'ops': {
+      const r = enqueue(step.ops);
+      return r.error ? { error: r.error } : { kind: 'ops', ops: step.inverse, inverse: step.ops };
+    }
+    case 'layout': {
+      const back: HistoryStep = { kind: 'layout' };
+      if (step.offsets) back.offsets = rm.layout?.offsets ?? {};
+      if (step.notes) back.notes = rm.layout?.notes ?? [];
+      writeLayout({ offsets: step.offsets, notes: step.notes });
+      return back;
+    }
+    case 'delete': {
+      const ids = step.ids.filter((id) => rm.checkpoints[id]);
+      if (!ids.length) return { error: 'it is already gone.' };
+      const r = enqueue(ids.map((id) => ({ op: 'delete' as const, id })));
+      if (r.error) return { error: r.error };
+      const sel = get().selectedId;
+      if (sel && !get().roadmap?.checkpoints[sel]) selectCheckpoint(null);
+      const res = await r.done;
+      return res?.trashId ? { kind: 'restore', trashId: res.trashId, ids } : { error: 'it could not be saved.' };
+    }
+    case 'restore': {
+      try {
+        await http.post(`/api/trash/${encodeURIComponent(step.trashId)}/restore`);
+      } catch (e) {
+        return { error: (e as Error).message };
+      }
+      await reloadRoadmap(roadmapId);
+      return { kind: 'delete', ids: step.ids };
+    }
+  }
+}
+
+let travelling: Promise<void> = Promise.resolve();
+
+/** Undo or redo the latest entry. One at a time, in order, so quick repeated presses are safe. */
+function travel(dir: 'undo' | 'redo'): Promise<void> {
+  travelling = travelling.then(async () => {
+    const source = dir === 'undo' ? 'undoStack' : 'redoStack';
+    const target = dir === 'undo' ? 'redoStack' : 'undoStack';
+    const stack = get()[source];
+    const entry = stack[stack.length - 1];
+    if (!entry) {
+      toast(dir === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.');
+      return;
+    }
+    set({ [source]: stack.slice(0, -1) } as Pick<State, typeof source>);
+    const opposite: HistoryStep[] = [];
+    let error: string | null = null;
+    for (const step of [...entry.steps].reverse()) {
+      const r = await perform(step, entry.roadmapId);
+      if ('error' in r) {
+        error = r.error;
+        break;
+      }
+      opposite.push(r);
+    }
+    // Whatever did happen stays reversible, even if a later step no longer applied.
+    if (opposite.length) set({ [target]: [...get()[target].slice(1 - HISTORY_LIMIT), { ...entry, steps: opposite }] } as Pick<State, typeof target>);
+    if (error) toast.error(`Couldn't ${dir} “${entry.label}”: ${error}`);
+    else toast.success(`${dir === 'undo' ? 'Undid' : 'Redid'}: ${entry.label}`);
+  });
+  return travelling;
+}
+
+export const undoLast = () => travel('undo');
+export const redoLast = () => travel('redo');
 
 export function toggleOutline() {
   if (window.innerWidth < 1024) return set({ outlineDrawer: !get().outlineDrawer });
