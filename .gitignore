@@ -5,3 +5,6 @@ workspace/
 .DS_Store
 examples/large-test.waymark.json
 .waymark-test/
+dist-electron/
+release/
+.waymark-desktop-test/

@@ -15,7 +15,13 @@ no subscription, no AI API, no internet needed after installing.
 
 ## Install and run
 
-Needs [Node.js](https://nodejs.org) 20 or newer.
+**Desktop app (Windows):** build the installer once with `npm install` then `npm run dist:win`, and run
+`release/Waymark-Setup-<version>.exe`. Waymark then starts like any other app (Start menu or desktop
+shortcut), asks once where to keep your roadmaps (suggested: `Documents\Waymark`), and needs no terminal.
+The installer isn't code-signed yet, so Windows SmartScreen asks first: *More info → Run anyway*. Mac and
+Linux builds: `npm run dist:mac` / `npm run dist:linux` (see [docs/PLATFORMS.md](docs/PLATFORMS.md)).
+
+**In the browser** (any system). Needs [Node.js](https://nodejs.org) 20 or newer.
 
 ```bash
 npm install
@@ -135,7 +141,7 @@ session notes and keeping agent formatting when you edit.
 
 Not yet (by design for v1): accounts, multi-person collaboration, cloud sync, built-in AI, an MCP server
 (file access already covers Claude), video or audio files, custom field profiles in the UI,
-cross-roadmap links, a desktop installer (planned: see [docs/PLATFORMS.md](docs/PLATFORMS.md)), moving a whole
+cross-roadmap links, macOS testing of the desktop app (see [docs/PLATFORMS.md](docs/PLATFORMS.md)), moving a whole
 folder into another folder from the app (rename works; move folders in your file manager).
 
 ## Licence of dependencies
@@ -143,4 +149,4 @@ folder into another folder from the app (rename works; move folders in your file
 All runtime dependencies are open source: React, React Flow (@xyflow/react), d3-hierarchy, Milkdown,
 react-arborist, Radix UI, cmdk, sonner, lucide, Tailwind CSS, Hono, chokidar, zod, yaml, jsdiff, nanoid,
 micromark/mdast (Markdown), html-to-image (map PNG), react-pdf (MIT) with Mozilla pdf.js (Apache-2.0),
-KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). Waymark makes no network requests while running.
+KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). The desktop app adds Electron (MIT; its shell follows Actual Budget's MIT-licensed desktop app). Waymark makes no network requests while running.

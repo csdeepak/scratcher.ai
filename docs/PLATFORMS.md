@@ -19,17 +19,39 @@ endings, and only pure-JavaScript dependencies, so `npm install` never needs a c
 
 Tested on Windows 11. Not yet tested on a Mac (nothing Windows-specific is used, but it hasn't been run there).
 
-## Stage 2: desktop app with an installer (.exe and .dmg)
+## Stage 2: desktop app with an installer (.exe and .dmg) — built
 
-**Recommended: Electron.** The server is already Node, so it runs inside Electron unchanged:
+**Electron**, because the server is already Node and runs inside it unchanged. The shell follows Actual
+Budget's open-source desktop app (MIT), adapted to Waymark:
 
-1. Add `electron/main.ts`: pick a free port, start the existing `Workspace` and HTTP app, and open a window
-   on it. Add a native *Choose workspace folder* dialog and *Show in Explorer/Finder*.
-2. Add `electron-builder` config. It produces an NSIS installer for Windows and a DMG for macOS (Apple
-   Silicon and Intel), built on each OS or in GitHub Actions.
-3. Optional: auto-update from GitHub Releases (`electron-updater`), free.
+- `electron/main.ts`: the server (`src/server/desktop.ts`) runs in an Electron *utility process* and tells
+  the window which port it is on (first free port from 47317, kept between runs so the page's saved view
+  settings stay). The window has no Node access (context isolation and sandbox). Links to other sites open
+  in your browser, pop-ups from the app itself (the PDF print view) open in an app window, and webviews and
+  unexpected permissions are refused. On quit the server saves everything before it stops.
+- First start asks where to keep the roadmaps (suggested: `Documents\Waymark`). **File → Open another
+  workspace folder…** switches, **File → Show workspace folder** opens it in Explorer/Finder; the home page
+  has the same two buttons. Settings and the window size live in the app's user-data folder; your data
+  stays in the workspace folder.
+- `electron/preload.ts` exposes only those two folder actions to the page.
+- `scripts/build-desktop.mjs` bundles main, preload and server with esbuild; `scripts/make-icon.cjs`
+  renders `public/favicon.svg` to `build/icon.png`. Only the server's runtime packages ship with the app
+  (the UI is pre-built), and Electron's “run as Node” and Node-options fuses are off.
 
-Size is about 100 MB because it ships Chromium. Estimated effort: a few days.
+| Command | Result |
+|---|---|
+| `npm run desktop` | build and open the desktop app from the source folder |
+| `npm run dist:win` | `release/Waymark-Setup-<version>.exe` (NSIS; choose the install folder, Start menu and desktop shortcuts) and `release/win-unpacked/` |
+| `npm run dist:mac` | `.dmg` for Apple Silicon and Intel (must run on a Mac or in GitHub Actions on macOS) |
+| `npm run dist:linux` | AppImage |
+
+Tested: the Windows installer builds (≈140 MB, mostly Chromium), and the packaged app starts its
+server from the app archive, creates a workspace, serves the UI, KaTeX and pdf.js files, and makes zip
+backups (an automated check: `WAYMARK_SMOKE_TEST=1 WAYMARK_WORKSPACE=<folder> WAYMARK_USER_DATA=<folder>
+release/win-unpacked/Waymark.exe` prints `WAYMARK_SMOKE {…}` and quits). Not yet tested: macOS.
+
+Still to do: auto-update from GitHub Releases (`electron-updater`), and a GitHub Actions workflow that
+builds the Windows and Mac installers on each release.
 
 **Signing:** unsigned apps work for personal use. Windows shows a SmartScreen warning ("More info → Run
 anyway"), and macOS needs right-click → Open the first time. Distributing to others without warnings needs
@@ -60,6 +82,6 @@ mobile apps (e.g. Capacitor) would come after stage 3.
 
 ## Suggested order
 
-1. Keep using stage 1 and try it on a Mac.
-2. Stage 2 (Electron) when you want a double-click app.
+1. Use the desktop app (stage 2) on Windows; build and try the Mac version.
+2. Add auto-update and release builds in GitHub Actions.
 3. Stage 3, option 1 or 2, when you need more than one device.

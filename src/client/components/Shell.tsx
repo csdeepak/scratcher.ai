@@ -294,6 +294,7 @@ export function Home({ onImport }: { onImport: () => void }) {
   const workspace = useStore((s) => s.workspace);
   const problems = useStore((s) => s.workspaceProblems);
   const ready = useStore((s) => s.ready);
+  const desktop = desktopBridge();
   const inScope = (f: string) => currentFolder === null || f === currentFolder || f.startsWith(currentFolder + '/');
   const groups = [...new Set(['', ...folders])]
     .filter(inScope)
@@ -400,8 +401,18 @@ export function Home({ onImport }: { onImport: () => void }) {
           )}
 
           <footer className="mt-10 grid gap-1 border-t border-line pt-4 text-[12px] text-faint">
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
+              {desktop && (
+                <>
+                  <button className="ml-1 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.showWorkspace()}>
+                    Show folder
+                  </button>
+                  <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.changeWorkspace()}>
+                    Open another folder…
+                  </button>
+                </>
+              )}
             </div>
             <div>Backups: a full backup (with attachments) of each roadmap every day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
           </footer>
@@ -692,4 +703,15 @@ function ProblemsBanner() {
       <p className="mt-2 text-[12px] text-faint">Waymark keeps showing the last good version and won't overwrite these files. Fix them in an editor (or ask the agent), or restore.</p>
     </div>
   );
+}
+
+/** Folder actions offered by the desktop app (electron/preload.ts); undefined in a normal browser. */
+interface DesktopBridge {
+  isDesktop: true;
+  platform: string;
+  showWorkspace: () => Promise<unknown>;
+  changeWorkspace: () => Promise<unknown>;
+}
+function desktopBridge(): DesktopBridge | undefined {
+  return (window as unknown as { waymarkDesktop?: DesktopBridge }).waymarkDesktop;
 }
