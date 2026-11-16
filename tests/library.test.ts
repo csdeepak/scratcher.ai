@@ -13,6 +13,23 @@ let dir: string;
 let ws: Workspace;
 const abs = (rel: string) => path.join(dir, 'roadmaps', rel);
 
+/**
+ * Move a folder the way a person does in the file manager. Windows briefly locks files that were
+ * just written (antivirus, the search indexer), so like a person clicking again, try a few times.
+ */
+async function moveInFileManager(from: string, to: string) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code ?? '';
+      if (attempt >= 40 || !['EPERM', 'EACCES', 'EBUSY'].includes(code)) throw e;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+}
+
 beforeEach(async () => {
   dir = mkdtempSync(path.join(tmpdir(), 'waymark-lib-'));
   ws = new Workspace(dir);
@@ -49,7 +66,7 @@ describe('library folders', () => {
 
   it('notices a roadmap folder moved in the file manager and keeps everything', async () => {
     mkdirSync(abs('Projects'));
-    renameSync(abs(SLUG), abs(`Projects/${SLUG}`));
+    await moveInFileManager(abs(SLUG), abs(`Projects/${SLUG}`));
     await ws.syncPaths([abs(`${SLUG}/roadmap.md`), abs(`${SLUG}/checkpoints/why-version-control.md`), abs(`Projects/${SLUG}/roadmap.md`)]);
     const rm = ws.getRoadmap(RM);
     expect(rm.folder).toBe('Projects');
@@ -72,11 +89,11 @@ describe('library folders', () => {
     const [entry] = await ws.listTrash();
     await ws.restoreTrash(entry!.id);
     expect(ws.getRoadmap(RM).folder).toBe('Archive me');
-    await new Promise((r) => setTimeout(r, 500));
-    const library = readFileSync(path.join(dir, 'LIBRARY.md'), 'utf8');
-    expect(library).toContain('📁 Archive me/');
-    expect(library).toContain(`roadmaps/Archive me/${SLUG}/`);
-  });
+    // LIBRARY.md is rewritten a moment after the last change; on Windows the write may retry a while.
+    const library = () => readFileSync(path.join(dir, 'LIBRARY.md'), 'utf8');
+    await expect.poll(library, { timeout: 8000, interval: 100 }).toContain(`roadmaps/Archive me/${SLUG}/`);
+    expect(library()).toContain('📁 Archive me/');
+  }, 15000);
 });
 
 describe('export formats', () => {
