@@ -6,7 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import { toast } from 'sonner';
 import { Crepe } from '@milkdown/crepe';
 import { editorViewCtx, remarkStringifyOptionsCtx } from '@milkdown/kit/core';
-import { Selection } from '@milkdown/kit/prose/state';
+import { Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { insert } from '@milkdown/kit/utils';
 import { fixImageAlts, preserveFormatting } from '../../shared/preserveFormatting';
 import { attachmentRel } from '../../shared/exporters';
@@ -125,6 +125,63 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
 });
 
 const words = (s: string) => (s.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/**
+ * Where a click landed in rendered Markdown, as the number of letters and digits before it.
+ * Rendered maths is skipped (the editor keeps LaTeX source there), so the count matches the
+ * editor's text and the caret can be put back at the same spot when the editor opens.
+ */
+export function wordCharsBeforePoint(container: HTMLElement, x: number, y: number): number | null {
+  const doc = container.ownerDocument as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  };
+  let node: Node | null = null;
+  let offset = 0;
+  const pos = doc.caretPositionFromPoint?.(x, y);
+  if (pos) ({ offsetNode: node, offset } = pos);
+  else {
+    const r = doc.caretRangeFromPoint?.(x, y);
+    if (r) ((node = r.startContainer), (offset = r.startOffset));
+  }
+  if (!node || !container.contains(node)) return null;
+  const range = doc.createRange();
+  range.setStart(container, 0);
+  range.setEnd(node, offset);
+  const walker = doc.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  let count = 0;
+  for (let t = walker.nextNode(); t; t = walker.nextNode()) {
+    if (t.parentElement?.closest('.katex, .katex-display') || !range.intersectsNode(t)) continue;
+    const text = t === range.endContainer ? (t.textContent ?? '').slice(0, range.endOffset) : (t.textContent ?? '');
+    for (const ch of text) if (WORD_CHAR.test(ch)) count++;
+  }
+  return count;
+}
+
+/** ProseMirror position after the n-th letter or digit (LaTeX blocks skipped), or null. */
+function posAfterWordChars(doc: import('@milkdown/kit/prose/model').Node, n: number): number | null {
+  let count = 0;
+  let found: number | null = null;
+  doc.descendants((node, pos) => {
+    if (found !== null) return false;
+    if (node.type.name === 'code_block' && String(node.attrs.language ?? '').toLowerCase() === 'latex') return false;
+    if (!node.isText) return true;
+    if (n === 0) {
+      found = pos;
+      return false;
+    }
+    const text = node.text ?? '';
+    for (let i = 0; i < text.length; i++) {
+      if (WORD_CHAR.test(text[i]!) && ++count === n) {
+        found = pos + i + 1;
+        return false;
+      }
+    }
+    return false;
+  });
+  return found;
+}
 
 
 /** Files from a paste or drop that can be attached. */
@@ -158,6 +215,7 @@ export function RichEditor({
   autoFocus,
   onLossy,
   attach,
+  caretAt,
 }: {
   value: string;
   onChange: (md: string) => void;
@@ -165,6 +223,8 @@ export function RichEditor({
   autoFocus?: boolean;
   onLossy?: () => void;
   attach?: AttachTarget;
+  /** Put the caret after this many letters/digits (where the reading view was clicked); default: the end. */
+  caretAt?: number | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const onChangeRef = useRef(onChange);
@@ -194,11 +254,23 @@ export function RichEditor({
     const crepe = new Crepe({
       root: el,
       defaultValue: value,
+      // Crepe's built-in fixed formatting bar (like Google Docs) instead of the floating selection
+      // toolbar, so there is one set of formatting buttons, always in the same place.
       features: {
         [Crepe.Feature.AI]: false,
-        [Crepe.Feature.TopBar]: false,
+        [Crepe.Feature.TopBar]: true,
+        [Crepe.Feature.Toolbar]: false,
       },
       featureConfigs: {
+        // Sections live under "# Section" headings in the file, so text uses ## and smaller.
+        [Crepe.Feature.TopBar]: {
+          headingOptions: [
+            { label: 'Normal text', level: null },
+            { label: 'Heading', level: 2 },
+            { label: 'Subheading', level: 3 },
+            { label: 'Small heading', level: 4 },
+          ],
+        },
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
         [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false, strict: 'ignore' } },
         // Images: uploads become attachments; stored paths like ../attachments/… are shown via the server.
@@ -263,7 +335,9 @@ export function RichEditor({
           try {
             crepe.editor.action((ctx) => {
               const view = ctx.get(editorViewCtx);
-              view.dispatch(view.state.tr.setSelection(Selection.atEnd(view.state.doc)).scrollIntoView());
+              const at = caretAt != null ? posAfterWordChars(view.state.doc, caretAt) : null;
+              const sel = at !== null ? TextSelection.near(view.state.doc.resolve(at)) : Selection.atEnd(view.state.doc);
+              view.dispatch(view.state.tr.setSelection(sel).scrollIntoView());
               view.focus();
             });
           } catch {

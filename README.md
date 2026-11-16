@@ -42,10 +42,12 @@ Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `
 | Images and PDFs | Drop them on a checkpoint's page, paste a screenshot (Ctrl+V), or use **Attachments → Add**. Pasting or dropping into a section you're editing inserts the image or a link right there. Click any image or PDF to open it in the built-in viewer (zoom, page jumps, working links, Ctrl+F). |
 | Maths | Write LaTeX: `$a^2+b^2=c^2$` inline, or a display equation between `$$` lines. It renders in notes, in the editor (with a live preview) and in PDF and web page exports. Write `\$` for a plain dollar sign. |
 | Links | Web links open in a new tab; `[title](cp-…)` jumps to another checkpoint; links to attachments open the viewer. While editing, Ctrl+click follows a link. |
-| Add checkpoints | Toolbar **+ Main checkpoint**, or select one and press **A** (sub-checkpoint) / **N** (next) |
-| Reorganise | Drag in the outline, **Tab / Shift+Tab** to indent, **Alt+↑/↓** to reorder, drag on the map for manual position |
+| Add checkpoints | Toolbar **+ Main checkpoint**, the toolbar above a selected checkpoint, or press **A** (sub-checkpoint) / **N** (next). You type the name right on the map. |
+| Edit the map (like draw.io) | **Double-click** (or F2) to rename. Drag a checkpoint's **blue dot** to another checkpoint to say “this needs that first”, or to empty space to add a sub-checkpoint. Click an arrow to remove it. **Drop a checkpoint onto another** to move it under that one; drop it on empty space to place it by hand. **Right-click** anything for its menu. |
+| Sticky notes | **Note** on the map toolbar (or right-click → Add a sticky note). Double-click to write, drag to move, drag the corners to resize, pick a colour. A note stays next to its nearest checkpoint. |
+| Reorganise | Drag on the map or in the outline, **Tab / Shift+Tab** to indent, **Alt+↑/↓** to reorder |
 | Work on one part | Select it and press **F** (focus); **O** returns to the overview |
-| Write | Click any section to edit (visual editor, or `</>` for Markdown); it saves as you type |
+| Write | Click anywhere in a section and type: the cursor goes where you clicked, a Docs-style formatting bar appears (text style, bold, lists, checklist, link, image, table, code, maths, quote), it saves as you type and closes when you click elsewhere. `</>` switches to Markdown. The roadmap's title, description and goal are edited the same way. |
 | Progress | Set status yourself; learning roadmaps also have “can I explain / apply it?” |
 | Find | **Ctrl+K** searches titles and notes across all roadmaps |
 | Undo | **Ctrl+Z**; History (per checkpoint) restores any earlier version; deleted items go to Trash |
@@ -126,9 +128,9 @@ statuses + understanding + approval, progress, autosave and offline queue, live 
 rules, review inbox, proposals, conflict detection, history/undo/trash, export/import, templates,
 maths (LaTeX via KaTeX) in notes, editor and exports, daily full backups with attachments, export to PDF,
 web page, Markdown, PNG, OPML and backup, import from backups, Markdown outlines and OPML, search,
-keyboard shortcuts, light/dark themes, small screens. 43 automated tests cover the file format, change
+keyboard shortcuts, light/dark themes, small screens. 46 automated tests cover the file format, change
 engine, guard rules, conflicts, review, trash, history, folders (including folders moved outside the app),
-export formats, maths, outline import, attachments and zip backups (including blocked path tricks), agent
+export formats, maths, sticky notes, outline import, attachments and zip backups (including blocked path tricks), agent
 session notes and keeping agent formatting when you edit.
 
 Not yet (by design for v1): accounts, multi-person collaboration, cloud sync, built-in AI, an MCP server

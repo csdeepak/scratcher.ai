@@ -9,7 +9,7 @@ import { opSchema, formatZodError, type AnyOp } from '../shared/ops';
 import { buildBrief } from './brief';
 import { parseCheckpoint } from '../shared/checkpointFile';
 import { getProfile } from '../shared/profiles';
-import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, type FieldPath } from '../shared/model';
+import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, MAX_MAP_NOTES, type FieldPath } from '../shared/model';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -144,8 +144,14 @@ export function createApp(ws: Workspace) {
   });
 
   app.put('/api/roadmaps/:id/layout', async (c) => {
-    const b = await body(c, z.object({ offsets: z.record(z.string(), z.object({ dx: z.number(), dy: z.number() })) }));
-    return c.json(await ws.setLayout(c.req.param('id'), b.offsets));
+    const b = await body(
+      c,
+      z.object({
+        offsets: z.record(z.string(), z.object({ dx: z.number(), dy: z.number() })).optional(),
+        notes: z.array(z.unknown()).max(MAX_MAP_NOTES).optional(),
+      }),
+    );
+    return c.json(await ws.setLayout(c.req.param('id'), b));
   });
 
   app.get('/api/roadmaps/:id/history', async (c) => {

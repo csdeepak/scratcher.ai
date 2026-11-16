@@ -79,6 +79,12 @@ interface State {
   centerRequest: { id: string; n: number } | null;
   /** Checkpoint whose title should be focused for typing as soon as it is shown. */
   pendingTitleEdit: string | null;
+  /** Checkpoint being renamed directly on the map. */
+  mapRename: string | null;
+  /** Sticky note whose text is being edited on the map. */
+  noteEdit: string | null;
+  /** Checkpoint waiting for "Delete?" confirmation. */
+  pendingDelete: string | null;
   theme: 'system' | 'light' | 'dark';
 }
 
@@ -156,6 +162,9 @@ export const useStore = create<State>(() => ({
   fitRequest: 0,
   centerRequest: null,
   pendingTitleEdit: null,
+  mapRename: null,
+  noteEdit: null,
+  pendingDelete: null,
   theme: (localStorage.getItem('waymark.theme') as State['theme']) ?? 'light',
 }));
 

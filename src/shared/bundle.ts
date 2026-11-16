@@ -2,7 +2,7 @@
 // See docs/DATA-FORMAT.md. Migrations upgrade older bundles step by step.
 
 import { z } from 'zod';
-import { SCHEMA_VERSION, type Checkpoint, type Roadmap, type RoadmapLayout, type RoadmapMeta } from './model';
+import { SCHEMA_VERSION, cleanMapNotes, type Checkpoint, type Roadmap, type RoadmapLayout, type RoadmapMeta } from './model';
 import { checkpointFromData } from './checkpointFile';
 import { clone, isHumanField } from './fields';
 import { isValidId } from './ids';
@@ -121,6 +121,7 @@ export function parseBundle(raw: unknown): { ok: true; value: ImportedRoadmap } 
       if (seen.has(id) && Number.isFinite(o?.dx) && Number.isFinite(o?.dy)) offsets[id] = { dx: o.dx, dy: o.dy };
     }
   }
+  const notes = layoutRaw && typeof layoutRaw === 'object' ? cleanMapNotes(layoutRaw.notes, (id) => seen.has(id)) : [];
   return {
     ok: true,
     value: {
@@ -134,7 +135,7 @@ export function parseBundle(raw: unknown): { ok: true; value: ImportedRoadmap } 
         overview: typeof r.overview === 'string' ? r.overview : '',
       },
       checkpoints,
-      layout: { schema: 'waymark-layout/1', offsets },
+      layout: { schema: 'waymark-layout/1', offsets, ...(notes.length ? { notes } : {}) },
       warnings,
     },
   };

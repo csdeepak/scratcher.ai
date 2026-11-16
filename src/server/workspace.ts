@@ -16,6 +16,7 @@ import {
 } from '../shared/checkpointFile';
 import {
   roadmapColor,
+  cleanMapNotes,
   ATTACHMENT_TYPES,
   MAX_ATTACHMENT_BYTES,
   type Attachment,
@@ -520,7 +521,8 @@ export class Workspace extends EventEmitter {
       for (const [id, o] of Object.entries(data.offsets ?? {})) {
         if (Number.isFinite(o?.dx) && Number.isFinite(o?.dy)) offsets[id] = { dx: o.dx, dy: o.dy };
       }
-      rt.layout = { schema: 'waymark-layout/1', offsets };
+      const notes = cleanMapNotes(data.notes);
+      rt.layout = { schema: 'waymark-layout/1', offsets, ...(notes.length ? { notes } : {}) };
       rt.problems.delete('layout.json');
     } catch (e) {
       this.setProblem(rt, 'layout.json', `layout.json is not valid JSON: ${(e as Error).message}`);
@@ -1154,16 +1156,21 @@ export class Workspace extends EventEmitter {
     });
   }
 
-  async setLayout(roadmapId: string, offsets: RoadmapLayout['offsets']) {
+  /** Save manual positions and/or sticky notes; whatever is left out stays as it is. */
+  async setLayout(roadmapId: string, input: { offsets?: RoadmapLayout['offsets']; notes?: unknown[] }) {
     return this.run(async () => {
       const rt = this.rt(roadmapId);
-      const clean: RoadmapLayout['offsets'] = {};
-      for (const [id, o] of Object.entries(offsets)) {
-        if (rt.cps[id] && Number.isFinite(o.dx) && Number.isFinite(o.dy) && (Math.abs(o.dx) > 0.5 || Math.abs(o.dy) > 0.5)) {
-          clean[id] = { dx: Math.round(o.dx), dy: Math.round(o.dy) };
+      let clean: RoadmapLayout['offsets'] = rt.layout.offsets;
+      if (input.offsets) {
+        clean = {};
+        for (const [id, o] of Object.entries(input.offsets)) {
+          if (rt.cps[id] && Number.isFinite(o.dx) && Number.isFinite(o.dy) && (Math.abs(o.dx) > 0.5 || Math.abs(o.dy) > 0.5)) {
+            clean[id] = { dx: Math.round(o.dx), dy: Math.round(o.dy) };
+          }
         }
       }
-      rt.layout = { schema: 'waymark-layout/1', offsets: clean };
+      const notes = input.notes ? cleanMapNotes(input.notes) : (rt.layout.notes ?? []);
+      rt.layout = { schema: 'waymark-layout/1', offsets: clean, ...(notes.length ? { notes } : {}) };
       const text = JSON.stringify(rt.layout, null, 2) + '\n';
       rt.hashes.set('layout.json', hashText(text));
       await writeFileAtomic(path.join(rt.dir, 'layout.json'), text);
@@ -1226,7 +1233,7 @@ export class Workspace extends EventEmitter {
         const text = await this.writeCheckpoint(rt, cp);
         this.history.record({ roadmapId: meta.id, cp: cp.id, title: cp.title, source, kind: 'create', before: null, after: text });
       }
-      if (Object.keys(layout.offsets).length) {
+      if (Object.keys(layout.offsets).length || layout.notes?.length) {
         const text = JSON.stringify(layout, null, 2) + '\n';
         rt.hashes.set('layout.json', hashText(text));
         await writeFileAtomic(path.join(dir, 'layout.json'), text);

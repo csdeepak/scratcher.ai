@@ -51,7 +51,7 @@ import {
   undoLast,
   useStore,
 } from '../store';
-import { addCheckpoint, addSibling, deleteCheckpoint, indent, needsDeleteConfirm, outdent, shiftCheckpoint } from '../actions';
+import { addCheckpoint, addSibling, deleteCheckpoint, indent, outdent, requestDelete, shiftCheckpoint, startRename } from '../actions';
 import { MapCanvas } from './MapCanvas';
 import { Outline } from './Outline';
 import { DetailsPanel } from './Details';
@@ -442,7 +442,8 @@ export function RoadmapView() {
   const selectedId = useStore((s) => s.selectedId);
   const wide = useMedia('(min-width: 1024px)');
   const medium = useMedia('(min-width: 768px)');
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const pendingDelete = useStore((s) => s.pendingDelete);
+  const setPendingDelete = (id: string | null) => setState({ pendingDelete: id });
   const [detailsWidth, setDetailsWidth] = useState(() => Number(localStorage.getItem('waymark.detailsWidth')) || 460);
 
   const layout = useMemo(() => (rm ? computeLayout(rm, expanded, focusId) : null), [rm, expanded, focusId]);
@@ -453,7 +454,7 @@ export function RoadmapView() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = getState();
-      if (!s.roadmap || s.dialog || s.reviewOpen) return;
+      if (!s.roadmap || s.dialog || s.reviewOpen || e.defaultPrevented) return;
       if (document.querySelector('[role="dialog"], [role="menu"]')) return;
       if (isTyping(e.target)) return;
       const cps = s.roadmap.checkpoints;
@@ -514,8 +515,9 @@ export function RoadmapView() {
           if (kids.length) toggleExpanded(sel);
           return;
         case 'Enter':
+        case 'F2':
           e.preventDefault();
-          setState({ detailsOpen: true, pendingTitleEdit: sel });
+          startRename(sel);
           return;
         case 'a':
         case 'A':
@@ -536,8 +538,7 @@ export function RoadmapView() {
         case 'Delete':
         case 'Backspace':
           e.preventDefault();
-          if (needsDeleteConfirm(cp)) setPendingDelete(sel);
-          else void deleteCheckpoint(sel);
+          requestDelete(sel);
           return;
       }
     };

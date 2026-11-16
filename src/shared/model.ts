@@ -106,6 +106,57 @@ export interface LayoutOffsets {
 export interface RoadmapLayout {
   schema: 'waymark-layout/1';
   offsets: LayoutOffsets;
+  /** Sticky notes placed on the map. */
+  notes?: MapNote[];
+}
+
+export const NOTE_COLORS = ['yellow', 'pink', 'blue', 'green', 'purple'] as const;
+export type NoteColor = (typeof NOTE_COLORS)[number];
+export const MAX_MAP_NOTES = 300;
+const MAX_NOTE_TEXT = 5000;
+
+/**
+ * A sticky note on the map. It is placed relative to a checkpoint (`anchor`) so it stays next to it
+ * when the automatic layout moves things around; `anchor: null` means relative to the map origin.
+ */
+export interface MapNote {
+  id: string;
+  text: string;
+  color: NoteColor;
+  anchor: string | null;
+  dx: number;
+  dy: number;
+  w: number;
+  h: number;
+}
+
+const NOTE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
+const clampNum = (v: unknown, min: number, max: number, fallback: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(max, Math.max(min, v))) : fallback;
+
+/** Validate sticky notes from a file, an import or the app. `keepAnchor` drops anchors to unknown checkpoints. */
+export function cleanMapNotes(raw: unknown, keepAnchor: (id: string) => boolean = () => true): MapNote[] {
+  if (!Array.isArray(raw)) return [];
+  const out: MapNote[] = [];
+  const seen = new Set<string>();
+  for (const n of raw.slice(0, MAX_MAP_NOTES)) {
+    if (!n || typeof n !== 'object') continue;
+    const o = n as Record<string, unknown>;
+    let id = typeof o.id === 'string' && NOTE_ID.test(o.id) ? o.id : `note-${out.length + 1}`;
+    while (seen.has(id)) id = `${id}-${out.length + 1}`;
+    seen.add(id);
+    out.push({
+      id,
+      text: typeof o.text === 'string' ? o.text.slice(0, MAX_NOTE_TEXT) : '',
+      color: (NOTE_COLORS as readonly string[]).includes(o.color as string) ? (o.color as NoteColor) : 'yellow',
+      anchor: typeof o.anchor === 'string' && o.anchor && keepAnchor(o.anchor) ? o.anchor : null,
+      dx: clampNum(o.dx, -1e6, 1e6, 0),
+      dy: clampNum(o.dy, -1e6, 1e6, 0),
+      w: clampNum(o.w, 120, 1200, 208),
+      h: clampNum(o.h, 60, 1200, 120),
+    });
+  }
+  return out;
 }
 
 /** A complete roadmap as held in memory and sent to the UI. */

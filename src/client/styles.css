@@ -41,6 +41,11 @@
   --done: #16a34a;
   --understand: #7c3aed;
   --link: #4f46e5; /* "requires" arrows */
+  --note-yellow: #fef08a;
+  --note-pink: #fbcfe8;
+  --note-blue: #bfdbfe;
+  --note-green: #bbf7d0;
+  --note-purple: #ddd6fe;
   --danger: #dc2626;
   --danger-soft: #fdeceb;
   --warn-soft: #fef3c7;
@@ -83,6 +88,11 @@
   --done: #4ade80;
   --understand: #a78bfa;
   --link: #818cf8;
+  --note-yellow: #fde68a;
+  --note-pink: #f9a8d4;
+  --note-blue: #93c5fd;
+  --note-green: #86efac;
+  --note-purple: #c4b5fd;
   --danger: #f87171;
   --danger-soft: #3b1715;
   --warn-soft: #3a2a0c;
@@ -226,6 +236,64 @@ body {
 }
 .react-flow__edge.wm-dim {
   opacity: 0.25;
+}
+
+/* Map editing (React Flow handles; EasyConnect pattern). The blue dot starts a link; while a link is
+   being dragged, the whole card of every other checkpoint is a drop target. */
+.react-flow__handle.wm-link-handle {
+  top: 18px;
+  width: 13px;
+  height: 13px;
+  min-width: 13px;
+  min-height: 13px;
+  border: 2px solid var(--link);
+  background: var(--surface);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: all;
+  cursor: crosshair;
+  transition: opacity 120ms, transform 120ms;
+}
+.react-flow__node:hover .wm-link-handle,
+.react-flow__node.selected .wm-link-handle,
+.react-flow__handle.wm-link-handle.connectingfrom {
+  opacity: 1;
+}
+.react-flow__handle.wm-link-handle:hover {
+  background: var(--link);
+  transform: translate(50%, -50%) scale(1.25);
+}
+.react-flow__handle.wm-drop-handle {
+  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border-radius: 6px;
+  opacity: 0;
+  background: transparent;
+}
+.react-flow__node:has(.wm-drop-handle.connectingto) .wm-node {
+  box-shadow: 0 0 0 4px var(--link);
+}
+.react-flow__connection-path {
+  stroke: var(--link);
+}
+/* Sticky notes */
+.react-flow__node-note {
+  cursor: grab;
+}
+.react-flow__node-note .wm-sticky::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 44px;
+  height: 12px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 /* ---------- Markdown reading view ---------- */
@@ -453,4 +521,42 @@ body {
 }
 .prose-wm .katex-error {
   color: var(--danger);
+}
+
+/* Crepe's built-in fixed formatting bar, made compact (one strip in the side panel, like Docs). */
+.wm-editor .milkdown .milkdown-top-bar {
+  top: 0;
+  min-height: 0;
+  margin: 0 0 6px;
+  padding: 2px 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-item {
+  width: 26px;
+  height: 26px;
+  margin: 1px;
+  padding: 3px;
+  border-radius: 6px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-item svg {
+  width: 18px;
+  height: 18px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-divider {
+  height: 18px;
+  margin: 0 3px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-selector {
+  padding: 1px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-button {
+  height: 26px;
+  padding: 2px 2px 2px 8px;
+  font-size: 12.5px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-label {
+  min-width: 0;
 }

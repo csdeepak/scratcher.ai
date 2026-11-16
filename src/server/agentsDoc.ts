@@ -1,7 +1,7 @@
 // Instructions written into the workspace for any AI agent that edits it.
 // Bump AGENTS_VERSION_MARK when the text changes; untouched older copies are upgraded.
 
-export const AGENTS_VERSION_MARK = '<!-- waymark:agents v3 -->';
+export const AGENTS_VERSION_MARK = '<!-- waymark:agents v4 -->';
 
 export const CLAUDE_MD = `# Claude instructions for this folder
 
@@ -27,7 +27,7 @@ roadmaps/                             the library. Folders group roadmaps (up to
 <roadmap>/INDEX.md                    GENERATED outline: ids, status, files, problems. Read it first. Never edit it.
 <roadmap>/checkpoints/*.md            one file per checkpoint (the file name doesn't matter; the id does)
 <roadmap>/proposals/                  write changesets here for moves, deletions and big reorganisations
-<roadmap>/layout.json                 optional manual position offsets (usually leave alone)
+<roadmap>/layout.json                 map positions and the human's sticky notes (read if useful; leave alone)
 templates/  backups/  .waymark/       app data: don't edit
 \`\`\`
 

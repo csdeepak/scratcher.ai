@@ -18,7 +18,7 @@ workspace/
   (inside every roadmap folder)
     roadmap.md                  settings + overview
     INDEX.md                    generated, read-only outline (ids, status, files, problems)
-    layout.json                 optional manual offsets {"offsets": {"cp-…": {"dx": 40, "dy": -12}}}
+    layout.json                 optional map layout: manual offsets and sticky notes (below)
     checkpoints/<slug>.md       one checkpoint per file
     attachments/<checkpoint-id>/  images (png jpg gif webp avif bmp svg) and PDFs, up to 50 MB each
     proposals/*.yaml|json       changesets waiting for review
@@ -87,6 +87,27 @@ Text before the first known heading is treated as Content. Code fences are respe
 
 Statuses: general = `not-started`, `in-progress`, `needs-review`, `complete`; learning =
 `not-started`, `learning`, `practising`, `needs-review`, `complete`.
+
+## layout.json (the map)
+
+Written by the app; agents should usually leave it alone. Both parts are optional.
+
+```json
+{
+  "schema": "waymark-layout/1",
+  "offsets": { "cp-k3x9a2mf": { "dx": 40, "dy": -12 } },
+  "notes": [
+    { "id": "note-1a2b3c4d", "text": "Ask in class: rebase vs merge?", "color": "yellow",
+      "anchor": "cp-k3x9a2mf", "dx": 280, "dy": -8, "w": 208, "h": 120 }
+  ]
+}
+```
+
+`offsets` move a checkpoint (and its branch) away from its automatic position. `notes` are sticky notes:
+plain text up to 5000 characters, `color` one of yellow, pink, blue, green, purple, size `w`×`h` in map
+units. A note is placed at `dx`/`dy` from its `anchor` checkpoint so it stays beside it when the map
+re-arranges; it is hidden while that checkpoint is collapsed or in Trash. `anchor: null` places it from the
+map origin. At most 300 notes; anything invalid is corrected on load.
 
 ## Rules for edits made outside the app
 
@@ -226,7 +247,7 @@ Requests from other websites are refused (Origin and Host checks). JSON in and o
 | `PATCH /api/roadmaps/:id` | `{title?, description?, overview?, profile?, agentAccess?}` |
 | `DELETE /api/roadmaps/:id` | move roadmap to Trash |
 | `POST /api/roadmaps/:id/ops` | `{ops: [...]}` same operations as changesets; `update` may carry `expect` for compare-and-set |
-| `PUT /api/roadmaps/:id/layout` | `{offsets}` |
+| `PUT /api/roadmaps/:id/layout` | `{offsets?, notes?}`; a part left out stays as it is |
 | `GET /api/roadmaps/:id/history?cp=` · `POST …/history/restore` | history, `{entryId, which: before\|after}` |
 | `GET /api/library` | `{folders, roadmaps}` for the library sidebar |
 | `POST /api/folders` · `PATCH /api/folders` · `DELETE /api/folders?path=` | create `{parent, name}`, rename `{path, name}`, delete (empty only) |

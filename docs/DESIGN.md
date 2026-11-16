@@ -125,7 +125,7 @@ workspace/
     learn-git/
       roadmap.md            roadmap settings (front matter) + overview for the agent
       INDEX.md              generated outline with ids, status, files, problems (read-only)
-      layout.json           optional manual position offsets
+      layout.json           optional manual position offsets and sticky notes
       checkpoints/
         branching-and-merging.md
       proposals/            agent-written changesets waiting for review
@@ -241,6 +241,7 @@ The app never silently overwrites a newer human change. Its own saves are field-
 * **Trash:** deleted checkpoints are kept in `.waymark/trash/` until you restore or empty them. Deleting from the UI asks for confirmation when a checkpoint has content or children, and always offers *Undo*.
 * **Backups:** each day the first save writes `backups/YYYY-MM-DD/<slug>.waymark.zip` for each roadmap: the bundle plus every attached image and PDF (the last 30 days are kept). *Backup now* is in the menu. For off-machine safety, put the workspace in OneDrive or Dropbox, or `git init` it. Notes stay plain text; the zip is an ordinary archive any tool can open.
 * **Export/import:** `*.waymark.zip` (full backup) or `*.waymark.json` (data only), a bundle with `format`, `schemaVersion`, the roadmap, checkpoints (sections included), and layout. Import validates and migrates the bundle, restores only well-formed attachment paths, then always creates a new roadmap, so nothing is overwritten.
+* **Direct editing (draw.io / Docs / OneNote conventions), reusing existing open-source pieces before writing new ones.** Map: React Flow's built-in `NodeToolbar` (selected checkpoint), `EdgeToolbar` (remove an arrow), `NodeResizer` (sticky notes) and `useConnection`, with patterns from the official MIT examples. *EasyConnect* makes the whole card a drop target while you drag a link. *Intersection* (checked against the pointer) is used for "drop onto a checkpoint to move it under". The React Flow mind-map tutorial supplies inline renaming and "drag a link into empty space to create a child". Right-click menus use Radix ContextMenu. Sticky notes follow the Flowise sticky-note node pattern and are stored in layout.json, anchored to the nearest checkpoint because the layout is automatic. Notes: Milkdown Crepe's built-in TopBar is the single Docs-style formatting bar (its floating selection toolbar is off). A click in the reading view is turned into a count of letters and digits before the click, so the editor opens with the caret at the same spot. Clicking outside a section saves and closes it, so there is no edit mode to manage.
 * **Maths:** LaTeX in `$…$` / `$$…$$`, rendered by KaTeX (remark-math in the reading view, Milkdown's LaTeX feature in the editor, micromark's math extension in exports). Editing elsewhere in a section keeps maths exactly as written (preserveFormatting treats `$$x$$` and a multi-line `$$` block as the same node). Print views link the app's KaTeX stylesheet; downloaded web pages embed it with its fonts.
 * **Schema versions:** `roadmap.md` carries `schema: waymark/1`; bundles and changesets carry their own versions. Migrations are pure functions `vN → vN+1` in `src/shared/migrations.ts`, run on load and on import.
 

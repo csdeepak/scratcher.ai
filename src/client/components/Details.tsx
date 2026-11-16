@@ -42,7 +42,7 @@ import type { HistoryEntry } from '../../server/history';
 import { clearConflict, getState, selectCheckpoint, setFocus, setState, submit, useStore } from '../store';
 import { addCheckpoint, deleteCheckpoint, link, needsDeleteConfirm, setStatus, subtreeCount, unlink, updateFields } from '../actions';
 import { http } from '../api';
-import { MarkdownView, RichEditor, SourceEditor, toggleTaskAt, type AttachTarget } from './Markdown';
+import { MarkdownView, RichEditor, SourceEditor, toggleTaskAt, wordCharsBeforePoint, type AttachTarget } from './Markdown';
 import { Button, Chip, IconButton, Menu, Modal, Pop, ProgressBar, StatusIcon, Tip, UnderstandingIcon, cx, relTime } from './ui';
 
 export function DetailsPanel({ rm, progress }: { rm: Roadmap; progress: Map<string | null, Progress> }) {
@@ -493,6 +493,22 @@ export function ProgressHelp() {
 // ------------------------------------------------------------------ sections
 
 const PREF_KEY = 'waymark.editorMode';
+
+/** Call `onClose` when the pointer goes down outside `ref` (menus, dialogs and editor popups don't count). */
+function useCloseOnOutsideClick(ref: React.RefObject<HTMLElement | null>, active: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || !t.isConnected || ref.current?.contains(t)) return;
+      if (t.closest('[data-radix-popper-content-wrapper], [role="dialog"], [role="menu"], [data-sonner-toaster], [class*="milkdown-"]')) return;
+      onClose();
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+}
 /** Compare section text the way the server stores it (trimmed, LF newlines). */
 const norm = (s: string) => s.replace(/\r\n?/g, '\n').trim();
 
@@ -509,6 +525,8 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
   const conflict = useStore((s) => s.conflicts.find((c) => c.cpId === cp.id && c.field === field));
   const [outsideChange, setOutsideChange] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
+  const [caretAt, setCaretAt] = useState<number | null>(null);
+  const sectionRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!editing) {
@@ -557,6 +575,10 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
     setEditing(false);
     setOutsideChange(false);
   };
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  // No Edit/Done mode to manage: clicking anywhere outside the section saves and closes it.
+  useCloseOnOutsideClick(sectionRef, editing, () => finishRef.current());
 
   const human = def.owner === 'human';
   const empty = !server.trim() && !editing;
@@ -564,7 +586,7 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
   if (empty) {
     return (
       <button
-        onClick={() => setEditing(true)}
+        onClick={() => (setCaretAt(null), setEditing(true))}
         className="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-faint hover:bg-surface-2 hover:text-muted"
       >
         <Plus size={13} className="flex-none" />
@@ -576,7 +598,7 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
 
   const useSource = mode === 'source' || lossy;
   return (
-    <section className={cx('group rounded-xl px-2 py-2', editing ? 'bg-surface-2/60 ring-1 ring-line' : 'hover:bg-surface-2/50')} aria-label={def.label}>
+    <section ref={sectionRef} className={cx('group rounded-xl px-2 py-2', editing ? 'bg-surface-2/60 ring-1 ring-line' : 'hover:bg-surface-2/50')} aria-label={def.label}>
       <header className="mb-1.5 flex items-center gap-2">
         <h3 className="text-[12.5px] font-semibold tracking-[-0.005em]">{def.label}</h3>
         <Tip label={human ? 'Yours. Agents can read it, but their edits are held for your approval.' : `${def.hint} Agents may edit this.`}>
@@ -612,7 +634,7 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
               Done
             </Button>
           ) : (
-            <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+            <Button size="sm" variant="ghost" onClick={() => (setCaretAt(null), setEditing(true))}>
               <Pencil size={12} /> Edit
             </Button>
           )}
@@ -664,7 +686,7 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
               }
             }}
           >
-            <RichEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} attach={attach} />
+            <RichEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} attach={attach} caretAt={caretAt} />
           </div>
         )
       ) : (
@@ -673,6 +695,8 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
           onClick={(e) => {
             if ((e.target as HTMLElement).closest('a, input, button')) return;
             if (window.getSelection()?.toString()) return;
+            // Open the editor with the caret where you clicked, like a document.
+            setCaretAt(wordCharsBeforePoint(e.currentTarget, e.clientX, e.clientY));
             setEditing(true);
           }}
         >
@@ -1166,26 +1190,17 @@ function RoadmapOverview({ rm, progress }: { rm: Roadmap; progress: Map<string |
   const top = useMemo(() => (childrenIndex(rm.checkpoints).get('') ?? []).filter((c) => !c.archived), [rm.checkpoints]);
   const drafts = Object.values(rm.checkpoints).filter((c) => !c.approved && !c.archived).length;
   const archived = Object.values(rm.checkpoints).filter((c) => c.archived);
-  const [editingOverview, setEditingOverview] = useState(false);
-  const [overviewText, setOverviewText] = useState(rm.meta.overview);
-  useEffect(() => setOverviewText(rm.meta.overview), [rm.meta.overview]);
-
-  const saveOverview = async () => {
-    setEditingOverview(false);
-    if (overviewText !== rm.meta.overview) {
-      try {
-        await http.patch(`/api/roadmaps/${rm.meta.id}`, { overview: overviewText });
-      } catch (e) {
-        toast.error((e as Error).message);
-      }
-    }
-  };
 
   return (
     <div className="px-5 pb-16 pt-5">
       <div className="text-[12px] font-medium text-faint">{profile.label} roadmap</div>
-      <h2 className="mt-0.5 text-[21px] font-semibold leading-tight tracking-[-0.015em]">{rm.meta.title}</h2>
-      {rm.meta.description && <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{rm.meta.description}</p>}
+      <MetaField
+        rm={rm}
+        field="title"
+        label="Roadmap title"
+        className="mt-0.5 text-[21px] font-semibold leading-tight tracking-[-0.015em]"
+      />
+      <MetaField rm={rm} field="description" label="Description" placeholder="Add a one-line description…" className="mt-1.5 text-[14px] leading-relaxed text-muted focus:text-fg" />
 
       <section className="mt-5 rounded-xl border border-line p-3">
         <div className="flex items-center gap-2 text-[12.5px]">
@@ -1211,38 +1226,7 @@ function RoadmapOverview({ rm, progress }: { rm: Roadmap; progress: Map<string |
         </div>
       </section>
 
-      <section className="mt-5">
-        <div className="mb-1 flex items-center gap-2">
-          <h3 className="text-[12.5px] font-semibold">Goal and context</h3>
-          <span className="text-[11px] text-faint">agents read this first</span>
-          {!editingOverview && (
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setEditingOverview(true)}>
-              <Pencil size={12} /> Edit
-            </Button>
-          )}
-        </div>
-        {editingOverview ? (
-          <div className="grid gap-2">
-            <SourceEditor value={overviewText} onChange={setOverviewText} autoFocus placeholder="What do you want to achieve? What do you know already? Constraints?" />
-            <div className="flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => (setOverviewText(rm.meta.overview), setEditingOverview(false))}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="primary" onClick={() => void saveOverview()}>
-                Save
-              </Button>
-            </div>
-          </div>
-        ) : rm.meta.overview ? (
-          <div className="cursor-text rounded-lg px-1 py-1 hover:bg-surface-2/60" onClick={() => setEditingOverview(true)}>
-            <MarkdownView text={rm.meta.overview} roadmapId={rm.meta.id} />
-          </div>
-        ) : (
-          <button className="text-[13px] text-faint hover:text-muted" onClick={() => setEditingOverview(true)}>
-            + Describe the goal, your starting point and constraints. This helps you and any agent.
-          </button>
-        )}
-      </section>
+      <OverviewEditor rm={rm} />
 
       <section className="mt-5">
         <h3 className="mb-1 text-[12.5px] font-semibold">Main checkpoints</h3>
@@ -1299,5 +1283,141 @@ function RoadmapOverview({ rm, progress }: { rm: Roadmap; progress: Map<string |
         </div>
       </section>
     </div>
+  );
+}
+
+/** Roadmap title or description, edited in place; saved when you leave the field. */
+function MetaField({ rm, field, label, placeholder, className }: { rm: Roadmap; field: 'title' | 'description'; label: string; placeholder?: string; className?: string }) {
+  const value = rm.meta[field];
+  const [v, setV] = useState(value);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => setV(value), [value]);
+  useEffect(() => {
+    const t = ref.current;
+    if (t) {
+      t.style.height = 'auto';
+      t.style.height = `${t.scrollHeight}px`;
+    }
+  }, [v]);
+  const commit = () => {
+    const t = v.replace(/\s+/g, ' ').trim();
+    if (field === 'title' && !t) return setV(value);
+    if (t === value) return;
+    http.patch(`/api/roadmaps/${rm.meta.id}`, { [field]: t }).catch((e: Error) => {
+      toast.error(e.message);
+      setV(value);
+    });
+  };
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={v}
+      aria-label={label}
+      placeholder={placeholder}
+      onChange={(e) => setV(e.target.value.replace(/\n/g, ' '))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          setV(value);
+          requestAnimationFrame(() => e.currentTarget?.blur());
+        }
+      }}
+      className={cx('-mx-1.5 block w-[calc(100%+12px)] resize-none overflow-hidden rounded-md bg-transparent px-1.5 py-0.5 outline-none placeholder:text-faint hover:bg-surface-2 focus:bg-surface-2', className)}
+    />
+  );
+}
+
+/** The roadmap's goal and context: click to write (caret where you click), saves as you type, closes when you click away. */
+function OverviewEditor({ rm }: { rm: Roadmap }) {
+  const [editing, setEditing] = useState(false);
+  const [caretAt, setCaretAt] = useState<number | null>(null);
+  const [draft, setDraft] = useState(rm.meta.overview);
+  const saved = useRef(rm.meta.overview);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ref = useRef<HTMLElement>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  useEffect(() => {
+    if (!editing) {
+      setDraft(rm.meta.overview);
+      saved.current = rm.meta.overview;
+    }
+  }, [rm.meta.overview, editing]);
+  const save = (text: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (text.trim() === saved.current.trim()) return;
+    saved.current = text;
+    http.patch(`/api/roadmaps/${rm.meta.id}`, { overview: text }).catch((e: Error) => toast.error(e.message));
+  };
+  const onChange = (text: string) => {
+    setDraft(text);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => save(text), 650);
+  };
+  const finish = () => {
+    save(draftRef.current);
+    setEditing(false);
+  };
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  useCloseOnOutsideClick(ref, editing, () => finishRef.current());
+  useEffect(
+    () => () => {
+      if (timer.current) save(draftRef.current);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const open = (at: number | null) => {
+    setCaretAt(at);
+    setEditing(true);
+  };
+  return (
+    <section ref={ref} className={cx('mt-5 rounded-xl px-2 py-2', editing ? 'bg-surface-2/60 ring-1 ring-line' : 'hover:bg-surface-2/50')} aria-label="Goal and context">
+      <div className="mb-1 flex items-center gap-2">
+        <h3 className="text-[12.5px] font-semibold">Goal and context</h3>
+        <span className="text-[11px] text-faint">agents read this first</span>
+        {editing ? (
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={finish}>
+            Done
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" className="ml-auto" onClick={() => open(null)}>
+            <Pencil size={12} /> Edit
+          </Button>
+        )}
+      </div>
+      {editing ? (
+        <div
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              finish();
+            }
+          }}
+        >
+          <RichEditor value={draft} onChange={onChange} autoFocus caretAt={caretAt} placeholder="What do you want to achieve? What do you know already? Constraints?" />
+        </div>
+      ) : rm.meta.overview ? (
+        <div
+          className="cursor-text"
+          onClick={(e) => {
+            if ((e.target as HTMLElement).closest('a, input, button') || window.getSelection()?.toString()) return;
+            open(wordCharsBeforePoint(e.currentTarget, e.clientX, e.clientY));
+          }}
+        >
+          <MarkdownView text={rm.meta.overview} roadmapId={rm.meta.id} />
+        </div>
+      ) : (
+        <button className="text-left text-[13px] text-faint hover:text-muted" onClick={() => open(null)}>
+          + Describe the goal, your starting point and constraints. This helps you and any agent.
+        </button>
+      )}
+    </section>
   );
 }

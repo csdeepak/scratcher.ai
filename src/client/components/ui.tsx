@@ -1,7 +1,7 @@
 // Small, consistent building blocks on top of Radix primitives.
 
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { Dialog as RDialog, DropdownMenu, Tooltip as RTooltip, Popover as RPopover } from 'radix-ui';
+import { ContextMenu, Dialog as RDialog, DropdownMenu, Tooltip as RTooltip, Popover as RPopover } from 'radix-ui';
 import { X } from 'lucide-react';
 import type { StatusCategory } from '../../shared/profiles';
 
@@ -142,6 +142,60 @@ export const Menu = {
         <DropdownMenu.ItemIndicator className="absolute left-2.5 size-1.5 rounded-full bg-accent" />
         {children}
       </DropdownMenu.RadioItem>
+    );
+  },
+};
+
+/** Right-click menu (Radix ContextMenu), styled like Menu. */
+export const CtxMenu = {
+  Root: ContextMenu.Root,
+  Trigger: ContextMenu.Trigger,
+  Content({ children, className }: { children: ReactNode; className?: string }) {
+    return (
+      <ContextMenu.Portal>
+        <ContextMenu.Content collisionPadding={8} className={cx('z-[70] min-w-56 rounded-xl border border-line bg-surface p-1 shadow-lg', className)}>
+          {children}
+        </ContextMenu.Content>
+      </ContextMenu.Portal>
+    );
+  },
+  Item({ children, onSelect, danger, disabled, hint }: { children: ReactNode; onSelect?: () => void; danger?: boolean; disabled?: boolean; hint?: ReactNode }) {
+    return (
+      <ContextMenu.Item
+        disabled={disabled}
+        onSelect={onSelect}
+        className={cx(
+          'flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2',
+          danger ? 'text-danger' : 'text-fg',
+        )}
+      >
+        {children}
+        {hint && <span className="ml-auto pl-4 text-[11.5px] text-faint">{hint}</span>}
+      </ContextMenu.Item>
+    );
+  },
+  Separator() {
+    return <ContextMenu.Separator className="my-1 h-px bg-line" />;
+  },
+  Label({ children }: { children: ReactNode }) {
+    return <ContextMenu.Label className="px-2.5 pb-1 pt-2 text-[11.5px] font-medium text-faint">{children}</ContextMenu.Label>;
+  },
+  Sub: ContextMenu.Sub,
+  SubTrigger({ children }: { children: ReactNode }) {
+    return (
+      <ContextMenu.SubTrigger className="flex cursor-pointer select-none items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] outline-none data-[highlighted]:bg-surface-2 data-[state=open]:bg-surface-2">
+        {children}
+        <span className="ml-auto text-faint">›</span>
+      </ContextMenu.SubTrigger>
+    );
+  },
+  SubContent({ children }: { children: ReactNode }) {
+    return (
+      <ContextMenu.Portal>
+        <ContextMenu.SubContent sideOffset={4} className="z-[71] min-w-48 rounded-xl border border-line bg-surface p-1 shadow-lg">
+          {children}
+        </ContextMenu.SubContent>
+      </ContextMenu.Portal>
     );
   },
 };
