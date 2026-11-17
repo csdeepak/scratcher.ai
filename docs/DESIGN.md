@@ -119,8 +119,9 @@ Considered and not chosen: **elkjs** (EPL-2.0) and **dagre** (MIT) are general D
 ### Workspace folder
 
 ```
-workspace/
-  AGENTS.md                 instructions for any agent (CLAUDE.md imports it)
+workspace/                  one folder you choose on first start (desktop: suggested Documents\Waymark)
+  AGENTS.md                 instructions for any agent (CLAUDE.md and GEMINI.md import it)
+  LIBRARY.md                generated list of every folder and roadmap (read-only)
   roadmaps/
     learn-git/
       roadmap.md            roadmap settings (front matter) + overview for the agent
@@ -204,11 +205,16 @@ Yours. Agents can read it but their edits are held for your approval.
 
 | Agent | Access to your data | Setup |
 |---|---|---|
-| Claude Code (CLI, or desktop app Code tab) | Direct file edits | Open the `workspace` folder. `CLAUDE.md` loads `AGENTS.md`. Needs your Claude login. |
-| Claude Desktop (chat) | Direct file edits | Enable a filesystem connector/extension with access to the workspace folder. A subscription alone does not grant file access. |
-| Codex CLI, Cursor, VS Code agents, Gemini CLI | Direct file edits | Open the workspace folder. Point them at `AGENTS.md`. |
+| Claude app Code tab, or Claude Code | Direct file edits | Choose the workspace folder. `CLAUDE.md` loads `AGENTS.md`. Needs your Claude login. |
+| Claude app Cowork | Direct file edits | Give Claude the folder when starting a task. |
+| Claude chat (desktop app) | Direct file edits | Add a file-access desktop extension (Settings → Desktop app → Extensions) allowed only this folder. A subscription alone does not grant file access. |
+| Codex (ChatGPT desktop app, CLI, editor extension) | Direct file edits | Open the workspace folder; Codex reads `AGENTS.md` before it works. |
+| Cursor, VS Code (GitHub Copilot), Windsurf | Direct file edits | Open the workspace folder; they read `AGENTS.md`. |
+| Gemini CLI | Direct file edits | Run it in the folder. `GEMINI.md` imports `AGENTS.md` (`@./AGENTS.md`). |
 | ChatGPT / Claude web chat (no file access) | Copy/paste | *Copy for AI* puts a brief (instructions, roadmap or section, format) on your clipboard. Paste the agent's reply into *Review → Paste proposal* to preview it. |
 | Scripts | Local HTTP API on `localhost` | Documented in `docs/DATA-FORMAT.md`. |
+
+**Connect your AI** (`components/Connect.tsx`) shows these steps with the folder's path and a first prompt to copy: step 2 of the desktop app's first start, then from Help, ⋯, Ctrl+K and *Work with an agent*. Waymark doesn't change other apps' settings; each card says where to click in that app. A typed MCP server stays deferred: every agent above already edits the files, and the guard rules apply whichever way a file changes.
 
 ### Two ways an agent can change things
 
@@ -245,6 +251,7 @@ The app never silently overwrites a newer human change. Its own saves are field-
 * **Undo and redo** follow draw.io's mxUndoManager and Excalidraw's History (both open source): an Undo stack and a Redo stack, a new change clears Redo, and undoing an entry applies its steps and puts their opposites on the Redo stack. A step is a list of change ops (with their inverse), a layout change (positions, sticky notes), a delete to Trash, or a restore from Trash; edits grouped with `batch()` undo as one (mxGraph's beginUpdate/endUpdate), so moving several checkpoints under another is one step. Text inside an open editor keeps the editor's own undo.
 * **Selecting several on the map** uses React Flow's selection box (Shift+drag, partial overlap counts, as in its Figma example) and one `NodeToolbar` over the whole group (its SelectedNodesToolbar example). React Flow's own box over a selection is hidden, so the group is dragged by any of its nodes and each node still takes clicks.
 * **The formatting bar stays on one row** like Google Docs: the rarer inserts sit in an "Insert" list (Crepe's own dropdown item type), and buttons that still don't fit move into a "⋯" menu at the end. The default bar gives way least-used first; a bar you arranged yourself gives way from the end of your list (`src/client/formatBar.ts`).
+* **Choosing the workspace folder** (desktop, `electron/folders.ts`, `components/Welcome.tsx`, `WorkspaceDialog.tsx`): the first start follows Obsidian's first screen (a vault is just a folder you pick or create) and VS Code's walkthroughs (one decision per step, what happens spelled out). The folder is checked as you type: a new or empty folder is set up, an existing workspace opens as it is, a folder with other files is allowed with a warning (agents connected to it can read those too) and a one-click "new folder inside it"; drive roots, the whole user folder, system folders and the install folder are refused. A OneDrive, Dropbox, Google Drive or iCloud folder gets a note to keep files on the device, since online-only placeholders look empty to agents. *Move my workspace here* copies and checks every file (size and SHA-256) before switching and never deletes the old folder.
 * **Toolbars you arrange yourself** (`src/client/toolbars.ts`, `components/ToolbarDialog.tsx`): the map toolbar and the notes formatting bar each have a list of items and a default layout. "Customise toolbar" follows Joplin's *Manage toolbar options* (its mobile editor): the bar's items in order with up/down buttons, the rest under *Available*, and *Restore defaults* (Joplin is AGPL, so only the pattern is reused, not code). As in the overflow menus of Office and Firefox, anything not on a bar stays in its "⋯" menu, so nothing becomes unreachable. A layout is saved per computer in `localStorage` (`waymark.toolbars`) only once it differs from the default, so later default changes still reach you. Crepe builds the notes bar once with every item; `formatBar.ts` arranges them with CSS `order` and draws its own group dividers, which keeps Crepe's rendering untouched and lets changes show live.
 * **Maths:** LaTeX in `$…$` / `$$…$$`, rendered by KaTeX (remark-math in the reading view, Milkdown's LaTeX feature in the editor, micromark's math extension in exports). Editing elsewhere in a section keeps maths exactly as written (preserveFormatting treats `$$x$$` and a multi-line `$$` block as the same node). Print views link the app's KaTeX stylesheet; downloaded web pages embed it with its fonts.
 * **Schema versions:** `roadmap.md` carries `schema: waymark/1`; bundles and changesets carry their own versions. Migrations are pure functions `vN → vN+1` in `src/shared/migrations.ts`, run on load and on import.

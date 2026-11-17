@@ -5,6 +5,7 @@ import {
   Folder,
   NotebookTabs,
   Bot,
+  Cable,
   Check,
   ChevronDown,
   CloudOff,
@@ -54,6 +55,7 @@ import {
 } from '../store';
 import { addCheckpoint, addSibling, deleteMany, indent, outdent, requestDelete, shiftCheckpoint, startRename } from '../actions';
 import { MapCanvas } from './MapCanvas';
+import { desktopBridge } from '../desktop';
 import { Outline } from './Outline';
 import { DetailsPanel } from './Details';
 import { Button, Chip, Drawer, IconButton, Kbd, Menu, Modal, ProgressBar, Tip, cx, relTime } from './ui';
@@ -204,6 +206,13 @@ export function TopBar({ onImport }: { onImport: () => void }) {
           </Menu.Item>
           <Menu.Item onSelect={() => setState({ dialog: 'trash' })}>
             <Trash size={14} /> Trash
+          </Menu.Item>
+          <Menu.Separator />
+          <Menu.Item onSelect={() => setState({ dialog: 'workspace' })}>
+            <FolderOpen size={14} /> Workspace folder…
+          </Menu.Item>
+          <Menu.Item onSelect={() => setState({ dialog: 'connect' })}>
+            <Cable size={14} /> Connect your AI…
           </Menu.Item>
           <Menu.Separator />
           <Menu.Sub>
@@ -405,15 +414,16 @@ export function Home({ onImport }: { onImport: () => void }) {
             <div className="flex flex-wrap items-center gap-1.5">
               <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
               {desktop && (
-                <>
-                  <button className="ml-1 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.showWorkspace()}>
-                    Show folder
-                  </button>
-                  <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.changeWorkspace()}>
-                    Open another folder…
-                  </button>
-                </>
+                <button className="ml-1 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.showWorkspace()}>
+                  Show folder
+                </button>
               )}
+              <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'workspace' })}>
+                {desktop ? 'Change or move…' : 'About this folder'}
+              </button>
+              <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'connect' })}>
+                Connect your AI…
+              </button>
             </div>
             <div>Backups: a full backup (with attachments) of each roadmap every day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
           </footer>
@@ -720,13 +730,3 @@ function ProblemsBanner() {
   );
 }
 
-/** Folder actions offered by the desktop app (electron/preload.ts); undefined in a normal browser. */
-interface DesktopBridge {
-  isDesktop: true;
-  platform: string;
-  showWorkspace: () => Promise<unknown>;
-  changeWorkspace: () => Promise<unknown>;
-}
-function desktopBridge(): DesktopBridge | undefined {
-  return (window as unknown as { waymarkDesktop?: DesktopBridge }).waymarkDesktop;
-}

@@ -8,6 +8,8 @@ import { roadmapColor, type RoadmapColor } from '../../shared/model';
 import { ColorSwatches } from './Library';
 import { AgentDialog } from './AgentDialog';
 import { ToolbarDialog } from './ToolbarDialog';
+import { ConnectDialog } from './Connect';
+import { WorkspaceDialog } from './WorkspaceDialog';
 import { Button, Chip, Kbd, Modal, cx, relTime } from './ui';
 
 const input = 'h-9 w-full rounded-lg border border-line bg-surface px-3 text-[13.5px] outline-none focus:border-accent';
@@ -23,6 +25,8 @@ export function Dialogs() {
       <ShortcutsDialog />
       <TemplateDialog />
       <ToolbarDialog />
+      <ConnectDialog />
+      <WorkspaceDialog />
     </>
   );
 }

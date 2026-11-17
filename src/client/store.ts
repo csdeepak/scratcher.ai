@@ -13,7 +13,7 @@ import { ApiError, http, subscribe, type ServerEvent } from './api';
 
 export type Route = { page: 'home' } | { page: 'roadmap'; id: string; cp?: string };
 export type SaveState = 'saved' | 'saving' | 'offline' | 'error';
-export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template' | 'export' | 'import' | 'toolbar';
+export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template' | 'export' | 'import' | 'toolbar' | 'connect' | 'workspace';
 /** The two bars you can arrange yourself (see toolbars.ts). */
 export type BarId = 'notes' | 'map';
 
@@ -100,6 +100,10 @@ interface State {
   toolbars: Partial<Record<BarId, string[]>>;
   /** Which bar the "Customise toolbar" dialog is for. */
   toolbarTarget: BarId;
+  /** "Connect your AI" is step 2 of the desktop app's first start. */
+  connectFirstRun: boolean;
+  /** Which tab "Work with an agent" opens on. */
+  agentTab: 'prompts' | 'setup' | 'chat';
 }
 
 const OUTBOX_KEY = 'waymark.outbox';
@@ -190,6 +194,8 @@ export const useStore = create<State>(() => ({
     }
   })(),
   toolbarTarget: 'notes',
+  connectFirstRun: false,
+  agentTab: 'prompts',
 }));
 
 const set = useStore.setState;

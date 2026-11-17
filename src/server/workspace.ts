@@ -53,7 +53,7 @@ import {
   writeFileAtomic,
 } from './fsutil';
 import { renderIndex } from './indexFile';
-import { AGENTS_MD, AGENTS_VERSION_MARK, CLAUDE_MD } from './agentsDoc';
+import { AGENTS_MD, AGENTS_VERSION_MARK, CLAUDE_MD, GEMINI_MD } from './agentsDoc';
 
 export type WsEvent =
   | { type: 'roadmap'; roadmapId: string; ids: string[]; source: string }
@@ -388,6 +388,9 @@ export class Workspace extends EventEmitter {
     }
     const claude = path.join(this.root, 'CLAUDE.md');
     if (!(await exists(claude))) await writeFileAtomic(claude, CLAUDE_MD);
+    // Pointers for agents that read their own file first; they only send the agent to AGENTS.md.
+    const gemini = path.join(this.root, 'GEMINI.md');
+    if (!(await exists(gemini))) await writeFileAtomic(gemini, GEMINI_MD);
   }
 
   // ---------------------------------------------------------------- loading

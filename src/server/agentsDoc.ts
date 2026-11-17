@@ -10,6 +10,14 @@ This folder is a Waymark workspace. Read and follow AGENTS.md before editing any
 @AGENTS.md
 `;
 
+/** Gemini CLI reads GEMINI.md and loads files named with @ (its "memory import" syntax). */
+export const GEMINI_MD = `# Gemini instructions for this folder
+
+This folder is a Waymark workspace. Read and follow AGENTS.md before editing anything.
+
+@./AGENTS.md
+`;
+
 export const AGENTS_MD = `${AGENTS_VERSION_MARK}
 # Working in this Waymark workspace (instructions for AI agents)
 

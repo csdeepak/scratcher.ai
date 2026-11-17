@@ -95,7 +95,11 @@ export async function startServer(o: StartOptions) {
       try {
         await ws.close();
       } finally {
-        await new Promise<void>((r) => server.close(() => r()));
+        const done = new Promise<void>((r) => server.close(() => r()));
+        // Everything is saved by now. Open pages keep their live-update stream (/api/events) open,
+        // which would hold close() until the desktop app gives up and kills the process.
+        (server as { closeAllConnections?: () => void }).closeAllConnections?.();
+        await done;
       }
     },
   };

@@ -30,9 +30,10 @@ afterEach(async () => {
 });
 
 describe('workspace', () => {
-  it('seeds the example, writes AGENTS.md, CLAUDE.md and an INDEX', async () => {
+  it('seeds the example, writes AGENTS.md, CLAUDE.md, GEMINI.md and an INDEX', async () => {
     expect(existsSync(path.join(dir, 'AGENTS.md'))).toBe(true);
     expect(readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8')).toContain('@AGENTS.md');
+    expect(readFileSync(path.join(dir, 'GEMINI.md'), 'utf8')).toContain('@./AGENTS.md');
     const rm = ws.getRoadmap(RM);
     expect(Object.keys(rm.checkpoints)).toHaveLength(14);
     expect(rm.files['cp-gitbranch']).toBe('checkpoints/branching-and-merging.md');

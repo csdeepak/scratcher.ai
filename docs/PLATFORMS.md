@@ -29,11 +29,23 @@ Budget's open-source desktop app (MIT), adapted to Waymark:
   settings stay). The window has no Node access (context isolation and sandbox). Links to other sites open
   in your browser, pop-ups from the app itself (the PDF print view) open in an app window, and webviews and
   unexpected permissions are refused. On quit the server saves everything before it stops.
-- First start asks where to keep the roadmaps (suggested: `Documents\Waymark`). **File → Open another
-  workspace folder…** switches, **File → Show workspace folder** opens it in Explorer/Finder; the home page
-  has the same two buttons. Settings and the window size live in the app's user-data folder; your data
-  stays in the workspace folder.
-- `electron/preload.ts` exposes only those two folder actions to the page.
+- First start shows a welcome page (`welcome.html`, served from the app's own files as `waymark://app/`
+  because there is no server before there is a workspace). It suggests `Documents\Waymark`, takes any
+  folder you type or browse to, and checks it first (`electron/folders.ts`): new, empty, an existing
+  workspace (opened as it is), or holding other files (allowed, with a warning and a one-click "new folder
+  inside it"). Drive roots, your whole user folder, system folders and the app's install folder are
+  refused. Then the app opens with **Connect your AI** as step 2. If the welcome page can't load, the old
+  plain dialog asks instead.
+- **File → Workspace folder…** (also on the home page, in ⋯ and Ctrl+K) shows the folder and, in the
+  desktop app, opens another folder or **moves** the workspace: the server stops, every file is copied
+  and compared by size and SHA-256, then the copy opens; the old folder is never deleted. A failed move
+  removes only its own partial copy and reopens the old folder. **File → Show workspace folder** opens it
+  in Explorer/Finder. Settings and the window size live in the app's user-data folder; your data stays in
+  the workspace folder.
+- `electron/preload.ts` exposes only folder actions (check, browse, use, move, show) and the menu's
+  "open this dialog" message to the page; the main process accepts them only from Waymark's own pages.
+- Automated check of the first start: `WAYMARK_SMOKE_TEST=1 WAYMARK_USER_DATA=<empty folder>` without
+  `WAYMARK_WORKSPACE` prints `WAYMARK_SMOKE {"welcome":true,…}` and quits.
 - `scripts/build-desktop.mjs` bundles main, preload and server with esbuild; `scripts/make-icon.cjs`
   renders `public/favicon.svg` to `build/icon.png`. Only the server's runtime packages ship with the app
   (the UI is pre-built), and Electron's “run as Node” and Node-options fuses are off.

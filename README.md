@@ -17,7 +17,11 @@ no subscription, no AI API, no internet needed after installing.
 
 **Desktop app (Windows):** build the installer once with `npm install` then `npm run dist:win`, and run
 `release/Waymark-Setup-<version>.exe`. Waymark then starts like any other app (Start menu or desktop
-shortcut), asks once where to keep your roadmaps (suggested: `Documents\Waymark`), and needs no terminal.
+shortcut) and needs no terminal. On the first start a welcome page asks where your notes should live
+(suggested: `Documents\Waymark`, or any folder you choose: it checks the folder first and warns if it
+already holds other files), then shows how to connect Claude, ChatGPT or another agent to that folder.
+Change or move the folder later with **File → Workspace folder**: *Move my workspace here* copies
+everything, checks every file, then switches; the old folder is left for you to delete.
 The installer isn't code-signed yet, so Windows SmartScreen asks first: *More info → Run anyway*. Mac and
 Linux builds: `npm run dist:mac` / `npm run dist:linux`. Releases are built by GitHub Actions and the
 installed app updates itself (see [docs/PLATFORMS.md](docs/PLATFORMS.md#releases-and-auto-update)).
@@ -80,11 +84,22 @@ app shows the result. The everyday loop:
      one-click OK in Review; explaining something never counts as you learning it.
 3. Watch the map update; open **Review** to keep or revert anything.
 
-How each agent reaches the files: **Claude desktop app** → Settings → Connectors → *Filesystem*, allow the
-workspace folder. **ChatGPT desktop app** → *Work* or *Codex* mode with access to the folder (plain Chat
-mode can't edit files). **Claude Code, Codex CLI, Cursor** → open the folder. A subscription alone does not
-give an agent access to your computer. **⋯ → Work with an agent → Set up your agent** also gives you a
-paragraph to paste into a Claude or ChatGPT *Project*, so every chat there knows the workflow.
+How each agent reaches the files (**⋯ → Connect your AI**, or Help in the desktop app, shows the same with
+your folder's path and a first prompt to copy):
+
+| Agent | How |
+|---|---|
+| Claude app → Code tab, or Claude Code | Choose the workspace folder. `CLAUDE.md` loads the rules in `AGENTS.md`. |
+| Claude app → Cowork | Give Claude the folder when you start a task. |
+| Claude chat | Add a file-access desktop extension (Settings → Desktop app → Extensions), allowing only this folder. |
+| ChatGPT desktop app → Codex | *Open a folder* and pick the workspace. Codex reads `AGENTS.md`. Same for the Codex CLI. |
+| Cursor, VS Code (GitHub Copilot), Windsurf | Open the folder; they read `AGENTS.md`. |
+| Gemini CLI | Run `gemini` in the folder; `GEMINI.md` loads `AGENTS.md`. |
+| ChatGPT or Claude in a browser | No file access: **Work with an agent → Chat without file access** (copy a brief, paste the reply). |
+
+A subscription alone does not give an agent access to your computer. **⋯ → Work with an agent → Connect
+your AI** also gives you a paragraph to paste into a Claude or ChatGPT *Project*, so every chat there knows
+the workflow.
 
 What the app guarantees whatever the agent does:
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Command } from 'cmdk';
 import { Dialog } from 'radix-ui';
-import { ArrowRight, Bot, Download, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
+import { ArrowRight, Bot, Cable, Download, FolderOpen, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
 import { http } from '../api';
 import { getState, navigate, overview, selectCheckpoint, setFocus, setState, setTheme, useStore } from '../store';
 import { addCheckpoint } from '../actions';
@@ -136,6 +136,12 @@ export function CommandPalette() {
                     </Command.Item>
                     <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'agent' }))}>
                       <Bot size={14} /> Work with an agent
+                    </Command.Item>
+                    <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'connect' }))}>
+                      <Cable size={14} /> Connect your AI (Claude, ChatGPT, …)
+                    </Command.Item>
+                    <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'workspace' }))}>
+                      <FolderOpen size={14} /> Workspace folder: change or move
                     </Command.Item>
                     {rm && (
                       <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'export', exportTarget: null }))}>

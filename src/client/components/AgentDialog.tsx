@@ -1,11 +1,12 @@
-// "Work with an agent": ready-made prompts for the session workflows in AGENTS.md, setup steps for
-// each agent app, and the copy/paste route for chats that can't reach your files.
+// "Work with an agent": ready-made prompts for the session workflows in AGENTS.md, how to connect
+// each agent app (Connect.tsx), and the copy/paste route for chats that can't reach your files.
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Bot, Copy, FolderOpen, GraduationCap, Lightbulb, ListChecks, NotebookPen, Sparkles, Split } from 'lucide-react';
+import { Bot, Copy, GraduationCap, Lightbulb, ListChecks, NotebookPen, Sparkles, Split } from 'lucide-react';
 import { http } from '../api';
 import { setState, useStore } from '../store';
+import { ConnectAgents } from './Connect';
 import { Button, Chip, Modal, cx } from './ui';
 
 type Flow = 'start' | 'wrapup' | 'brainstorm' | 'quiz' | 'expand' | 'draft';
@@ -26,7 +27,8 @@ export function AgentDialog() {
   const rm = useStore((s) => s.roadmap);
   const selectedId = useStore((s) => s.selectedId);
   const workspace = useStore((s) => s.workspace);
-  const [tab, setTab] = useState<'prompts' | 'setup' | 'chat'>('prompts');
+  const tab = useStore((s) => s.agentTab);
+  const setTab = (agentTab: typeof tab) => setState({ agentTab });
   const [flow, setFlow] = useState<Flow>('wrapup');
   const [format, setFormat] = useState(() => {
     try {
@@ -105,12 +107,12 @@ Never rewrite or delete my existing notes, and never mark progress or understand
 
   const tabs: [typeof tab, string][] = [
     ['prompts', 'Session prompts'],
-    ['setup', 'Set up your agent'],
+    ['setup', 'Connect your AI'],
     ['chat', 'Chat without file access'],
   ];
 
   return (
-    <Modal open={open} onOpenChange={(o) => setState({ dialog: o ? 'agent' : null })} title="Work with an agent" description="Waymark has no built-in AI. Study or brainstorm with Claude, ChatGPT or another agent, then let it write the results into your files: the map updates live." wide>
+    <Modal open={open} onOpenChange={(o) => setState(o ? { dialog: 'agent' } : { dialog: null, agentTab: 'prompts' })} title="Work with an agent" description="Waymark has no built-in AI. Study or brainstorm with Claude, ChatGPT or another agent, then let it write the results into your files: the map updates live." wide>
       <div className="mb-4 flex rounded-lg bg-surface-2 p-0.5 text-[12.5px]">
         {tabs.map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={cx('flex-1 rounded-md px-3 py-1.5', tab === k ? 'bg-surface font-medium shadow-sm' : 'text-muted')}>
@@ -187,36 +189,15 @@ Never rewrite or delete my existing notes, and never mark progress or understand
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed">{prompt}</pre>
           </div>
           <p className="text-[12px] leading-relaxed text-muted">
-            Works in Claude Desktop with the Filesystem connector, ChatGPT desktop in Work or Codex mode, Claude Code, Codex CLI or Cursor (see <i>Set up your agent</i>). Once the agent has read AGENTS.md in a chat, you can simply say <b>"wrap up"</b> at the end.
+            Works in any agent that can open your workspace folder: the Claude app's Code tab or Cowork, Codex in the ChatGPT desktop app, Cursor and others (see <i>Connect your AI</i>). Once the agent has read AGENTS.md in a chat, you can simply say <b>"wrap up"</b> at the end.
           </p>
         </div>
       )}
 
       {tab === 'setup' && (
-        <div className="grid gap-4 text-[13px] leading-relaxed">
-          <div className="rounded-lg border border-line p-3">
-            <div className="mb-1.5 flex items-center gap-2 text-[12.5px] font-semibold">
-              <FolderOpen size={14} /> Your workspace folder
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md bg-surface-2 px-2 py-1 font-mono text-[12px]">{workspace}</code>
-              <Button size="sm" onClick={() => copy(workspace, 'Path copied')}>
-                <Copy size={13} /> Copy
-              </Button>
-            </div>
-          </div>
-          <ul className="grid gap-2.5">
-            <li>
-              <b>Claude desktop app (chat):</b> Settings → Connectors → <i>Filesystem</i>, turn it on and allow the workspace folder. Claude then reads and edits the files directly and asks before each write. A subscription alone doesn't give Claude access to your computer.
-            </li>
-            <li>
-              <b>ChatGPT desktop app:</b> use <i>Work</i> or <i>Codex</i> mode and grant access to the workspace folder. Plain <i>Chat</i> mode can't edit files: use the third tab instead.
-            </li>
-            <li>
-              <b>Claude Code, Codex CLI, Cursor, VS Code agents:</b> open the workspace folder. Claude Code reads <code className="font-mono text-[12px]">CLAUDE.md</code> → <code className="font-mono text-[12px]">AGENTS.md</code> automatically.
-            </li>
-          </ul>
-          <div>
+        <div className="flex min-w-0 flex-col gap-4 text-[13px] leading-relaxed">
+          <ConnectAgents workspace={workspace} onChatRoute={() => setTab('chat')} />
+          <div className="border-t border-line pt-4">
             <div className="mb-1 flex items-center justify-between text-[12.5px] font-semibold">
               One-time instructions for a Claude Project or ChatGPT Project
               <Button size="sm" onClick={() => copy(projectInstructions, 'Instructions copied')}>
