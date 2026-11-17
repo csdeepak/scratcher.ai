@@ -13,7 +13,8 @@ import { fixImageAlts, preserveFormatting } from '../../shared/preserveFormattin
 import { attachmentRel } from '../../shared/exporters';
 import { encodeTarget, isAttachable, markdownFor, openViewer, resolveSrc, type Uploaded } from '../attachments';
 import { getState, navigate, selectCheckpoint } from '../store';
-import { fitTopBar } from '../topBarFit';
+import { manageFormatBar, type BarCommand } from '../formatBar';
+import { barItem, rememberNoteIcon } from '../toolbars';
 
 /** Where pasted or dropped files are attached, and how stored paths become URLs. */
 export interface AttachTarget {
@@ -206,61 +207,69 @@ async function uploadAll(target: AttachTarget, files: File[]): Promise<string[]>
 }
 
 // ------------------------------------------------------------------ formatting bar
-// One row, like Google Docs: everyday formatting stays on the bar and the rarer inserts go in an
-// "Insert" list (Crepe's own dropdown item type, so nothing is patched). "/" in the text has them all too.
-const INSERT_ITEMS: [key: string, label: string][] = [
-  ['image', 'Image'],
-  ['table', 'Table'],
-  ['code-block', 'Code block'],
-  ['math', 'Maths (LaTeX)'],
-  ['quote', 'Quote'],
-  ['hr', 'Divider'],
+// Crepe's fixed top bar, built once with every item in a fixed order and in one group (so Crepe
+// draws no dividers of its own). formatBar.ts then shows the ones on your bar, in your order
+// (see toolbars.ts). The rarer inserts are in an "Insert" list, Crepe's own dropdown item type;
+// "/" in the text has them all too.
+
+/** Our item id → Crepe's key ('' = the Insert list, which is ours). */
+const CREPE_KEYS: [id: string, key: string][] = [
+  ['heading', 'heading-selector'],
+  ['bold', 'bold'],
+  ['italic', 'italic'],
+  ['strikethrough', 'strikethrough'],
+  ['code', 'code'],
+  ['link', 'link'],
+  ['bullet-list', 'bullet-list'],
+  ['ordered-list', 'ordered-list'],
+  ['task-list', 'task-list'],
+  ['insert', ''],
+  ['image', 'image'],
+  ['table', 'table'],
+  ['code-block', 'code-block'],
+  ['math', 'math'],
+  ['quote', 'quote'],
+  ['hr', 'hr'],
 ];
-const BAR_BUTTONS: [key: string, label: string][] = [
-  ['bold', 'Bold (Ctrl+B)'],
-  ['italic', 'Italic (Ctrl+I)'],
-  ['strikethrough', 'Strikethrough'],
-  ['code', 'Code'],
-  ['link', 'Link'],
-  ['bullet-list', 'Bulleted list'],
-  ['ordered-list', 'Numbered list'],
-  ['task-list', 'Checklist'],
-];
-/** Names of the icon buttons, in the order the bar shows them. */
-let TOP_BAR_LABELS: string[] = BAR_BUTTONS.map(([, l]) => l);
+const INSERT_IDS = ['image', 'table', 'code-block', 'math', 'quote', 'hr'];
+
+/** Ids of the items in the order Crepe renders them, and what each one does (for the ⋯ menu). */
+let BUILT: string[] = [];
+const COMMANDS = new Map<string, BarCommand>();
 
 type TopBarBuilder = Parameters<NonNullable<TopBarFeatureConfig['buildTopBar']>>[0];
 
-function oneRowTopBar(b: TopBarBuilder) {
+function buildFormatBar(b: TopBarBuilder) {
   const items = new Map(b.build().flatMap((g) => g.items.map((i) => [i.key, i] as const)));
   b.clear();
-  const shown: string[] = [];
-  const group = (key: string, label: string, keys: string[]) => {
-    const g = b.addGroup(key, label);
-    for (const k of keys) {
-      const it = items.get(k);
-      if (!it) continue;
-      const { key: _key, ...rest } = it;
-      g.addItem(k, rest);
-      const name = BAR_BUTTONS.find(([bk]) => bk === k)?.[1];
-      if (name) shown.push(name);
-    }
-  };
-  group('heading', 'Heading', ['heading-selector']);
-  group('formatting', 'Formatting', ['bold', 'italic', 'strikethrough', 'code', 'link']);
-  group('list', 'List', ['bullet-list', 'ordered-list', 'task-list']);
-  const options = INSERT_ITEMS.flatMap(([k, label]) => {
-    const run = items.get(k)?.onRun;
-    return run ? [{ label, onSelect: run }] : [];
+  const group = b.addGroup('bar', 'Formatting');
+  const built: string[] = [];
+  const insertOptions = INSERT_IDS.flatMap((id) => {
+    const run = items.get(id)?.onRun;
+    return run ? [{ label: barItem('notes', id)?.label ?? id, onSelect: run }] : [];
   });
-  if (options.length) {
-    b.addGroup('insert', 'Insert').addItem('insert', {
-      icon: '',
-      active: () => false,
-      selector: { activeLabel: () => 'Insert', chevronIcon: items.get('heading-selector')?.selector?.chevronIcon, options },
-    });
+  for (const [id, key] of CREPE_KEYS) {
+    if (!key) {
+      if (!insertOptions.length) continue;
+      group.addItem('insert', {
+        icon: '',
+        active: () => false,
+        selector: { activeLabel: () => 'Insert', chevronIcon: items.get('heading-selector')?.selector?.chevronIcon, options: insertOptions },
+      });
+      COMMANDS.set(id, { options: insertOptions.map((o) => ({ label: o.label, run: o.onSelect })) });
+      built.push(id);
+      continue;
+    }
+    const it = items.get(key);
+    // Crepe skips items with neither an action nor a list, so they must not be counted.
+    if (!it || (!it.onRun && !it.selector)) continue;
+    const { key: _key, ...rest } = it;
+    group.addItem(key, rest);
+    built.push(id);
+    rememberNoteIcon(id, it.icon);
+    COMMANDS.set(id, it.selector ? { options: it.selector.options.map((o) => ({ label: o.label, run: o.onSelect })) } : { run: it.onRun });
   }
-  TOP_BAR_LABELS = shown;
+  BUILT = built;
 }
 
 
@@ -303,8 +312,9 @@ export function RichEditor({
       interacted = true;
     };
     // Any real edit (typing, IME, dictation, paste, clicks on checkboxes) counts; the editor's own
-    // normalisation on load does not, so opening a section never rewrites the file.
-    const events = ['keydown', 'beforeinput', 'input', 'paste', 'drop', 'mousedown', 'cut'];
+    // normalisation on load does not, so opening a section never rewrites the file. The formatting
+    // bar and its ⋯ menu act on pointer-down and cancel it, so no mousedown follows: count that too.
+    const events = ['keydown', 'beforeinput', 'input', 'paste', 'drop', 'mousedown', 'pointerdown', 'cut'];
     for (const ev of events) el.addEventListener(ev, mark, true);
 
     const upload = async (file: File) => {
@@ -331,7 +341,7 @@ export function RichEditor({
             { label: 'Subheading', level: 3 },
             { label: 'Small heading', level: 4 },
           ],
-          buildTopBar: oneRowTopBar,
+          buildTopBar: buildFormatBar,
         },
         [Crepe.Feature.Placeholder]: { text: placeholder ?? 'Write here… type / for blocks', mode: 'doc' },
         [Crepe.Feature.Latex]: { katexOptions: { throwOnError: false, strict: 'ignore' } },
@@ -380,27 +390,22 @@ export function RichEditor({
     };
     el.addEventListener('click', onClick, true);
 
-    // Crepe's bar buttons are icons only: give each a name (hover tooltip and screen readers).
-    const labelBar = () =>
-      el.querySelectorAll<HTMLElement>('.milkdown-top-bar .top-bar-item').forEach((b, i) => {
-        const name = TOP_BAR_LABELS[i];
-        if (name && b.getAttribute('aria-label') !== name) {
-          b.setAttribute('aria-label', name);
-          b.title = name;
-        }
-      });
-    const barWatch = new MutationObserver(labelBar);
-    let unfit = () => {};
+    // Your arrangement of the formatting bar, on one row, with a ⋯ menu (formatBar.ts).
+    let unbar = () => {};
 
     let alive = true;
     void crepe.create().then(() => {
       if (!alive) return;
-      labelBar();
       const bar = el.querySelector<HTMLElement>('.milkdown-top-bar');
-      if (bar) {
-        barWatch.observe(bar, { childList: true, subtree: true });
-        unfit = fitTopBar(bar);
-      }
+      // Commands from the ⋯ menu act on this editor and leave the caret in it, so typing and Ctrl+Z
+      // carry on there rather than going to the map.
+      if (bar)
+        unbar = manageFormatBar(bar, BUILT, COMMANDS, (fn) =>
+          crepe.editor.action((ctx) => {
+            fn(ctx);
+            ctx.get(editorViewCtx).focus();
+          }),
+        );
       try {
         if (value.trim() && words(crepe.getMarkdown()) !== words(value)) lossyRef.current?.();
       } catch {
@@ -432,8 +437,7 @@ export function RichEditor({
     });
     return () => {
       alive = false;
-      barWatch.disconnect();
-      unfit();
+      unbar();
       for (const ev of events) el.removeEventListener(ev, mark, true);
       el.removeEventListener('paste', onFiles as EventListener, true);
       el.removeEventListener('drop', onFiles as EventListener, true);

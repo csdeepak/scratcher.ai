@@ -11,7 +11,7 @@
 //    then moves, changes status or is deleted together, with one toolbar (React Flow's SelectedNodesToolbar
 //    example) and one Undo step
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -43,6 +43,7 @@ import {
 import {
   ChevronRight,
   CornerDownRight,
+  Ellipsis,
   FileText,
   Focus,
   Maximize2,
@@ -51,10 +52,9 @@ import {
   Plus,
   Map as MapIcon,
   Pause,
-  Redo2,
+  SlidersHorizontal,
   StickyNote,
   Trash,
-  Undo2,
   Unlink,
   X,
 } from 'lucide-react';
@@ -84,7 +84,10 @@ import {
   updateNote,
 } from '../actions';
 import { toPng } from 'html-to-image';
-import { registerMapCapture } from '../mapExport';
+import { toast } from 'sonner';
+import { downloadMapImage, registerMapCapture } from '../mapExport';
+import { barItem, customiseToolbar, groupStarts, itemTitle, offBar, useBarLayout } from '../toolbars';
+import { MAP_ICONS } from './ToolbarDialog';
 import { Button, Chip, CtxMenu, IconButton, Menu, ProgressBar, StatusIcon, Tip, UnderstandingIcon, cx } from './ui';
 
 interface NodeData extends Record<string, unknown> {
@@ -1255,46 +1258,82 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   );
 }
 
+/**
+ * The map toolbar: your buttons in your order (set in "Customise toolbar", see toolbars.ts) and a
+ * ⋯ menu at the end with everything else. Right-click the toolbar for the same menu.
+ */
 function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
   const focusId = useStore((s) => s.focusId);
   const selectedId = useStore((s) => s.selectedId);
-  const prereqMode = useStore((s) => s.prereqMode);
   const undoLabel = useStore((s) => s.undoStack[s.undoStack.length - 1]?.label);
   const redoLabel = useStore((s) => s.redoStack[s.redoStack.length - 1]?.label);
+  const layout = useBarLayout('map');
+  const starts = groupStarts('map', layout);
+  const hidden = offBar('map', layout);
+  const [moreOpen, setMoreOpen] = useState(false);
   const focusTitle = focusId ? rm.checkpoints[focusId]?.title : null;
-  return (
-    <div className="pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-start gap-2">
-      <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border-[1.5px] border-ink/80 bg-surface p-1 shadow-md">
+  const hasOffsets = Object.keys(rm.layout?.offsets ?? {}).length > 0;
+  const saveImage = () =>
+    void downloadMapImage(`${rm.slug.split('/').pop() || 'roadmap'}-map.png`).catch((e: Error) => toast.error(`Couldn't save the image: ${e.message}`));
+
+  /** A plain button: an icon on the bar, a named item in the ⋯ menu. */
+  const plain = (id: string, onRun: () => void, opts: { disabled?: boolean; tip?: string } = {}): Tool => {
+    const item = barItem('map', id)!;
+    return {
+      bar: (
+        <IconButton size="sm" label={opts.tip ?? itemTitle(item)} disabled={opts.disabled} onClick={onRun}>
+          {MAP_ICONS[id]}
+        </IconButton>
+      ),
+      menu: (
+        <Menu.Item disabled={opts.disabled} onSelect={onRun} hint={item.hint}>
+          {MAP_ICONS[id]} {item.label}
+        </Menu.Item>
+      ),
+    };
+  };
+  const tools: Record<string, Tool> = {
+    main: {
+      bar: (
         <Tip label="Add a main checkpoint">
           <Button size="sm" variant="ghost" aria-label="Add a main checkpoint" onClick={() => addCheckpoint(null)}>
-            <Plus size={14} /> <span className="hidden sm:inline">Main checkpoint</span>
+            <Plus size={14} /> <span className="hidden @2xl:inline">Main checkpoint</span>
           </Button>
         </Tip>
+      ),
+      menu: plain('main', () => addCheckpoint(null)).menu,
+    },
+    sub: {
+      bar: (
         <Tip label={selectedId ? 'Add a sub-checkpoint to the selection (A)' : 'Select a checkpoint first'}>
           <span>
             <Button size="sm" variant="ghost" aria-label="Add a sub-checkpoint" disabled={!selectedId} onClick={() => selectedId && addCheckpoint(selectedId)}>
-              <ChevronRight size={14} /> <span className="hidden sm:inline">Sub-checkpoint</span>
+              <ChevronRight size={14} /> <span className="hidden @2xl:inline">Sub-checkpoint</span>
             </Button>
           </span>
         </Tip>
+      ),
+      menu: plain('sub', () => selectedId && addCheckpoint(selectedId), { disabled: !selectedId }).menu,
+    },
+    note: {
+      bar: (
         <Tip label="Add a sticky note (next to the selection, or in the middle)">
           <Button size="sm" variant="ghost" aria-label="Add a sticky note" onClick={onNote}>
-            <StickyNote size={14} /> <span className="hidden lg:inline">Note</span>
+            <StickyNote size={14} /> <span className="hidden @3xl:inline">Note</span>
           </Button>
         </Tip>
-        <span className="mx-1 h-5 w-px bg-line" />
-        <IconButton size="sm" label={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Nothing to undo'} disabled={!undoLabel} onClick={() => void undoLast()}>
-          <Undo2 size={15} />
-        </IconButton>
-        <IconButton size="sm" label={redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : 'Nothing to redo'} disabled={!redoLabel} onClick={() => void redoLast()}>
-          <Redo2 size={15} />
-        </IconButton>
-        <IconButton size="sm" label={selectedId ? 'Focus on the selection (F)' : 'Select a checkpoint to focus on it'} disabled={!selectedId} onClick={() => selectedId && setFocus(selectedId)}>
-          <Focus size={15} />
-        </IconButton>
-        <IconButton size="sm" label="Overview: show the whole roadmap (O)" onClick={() => overview()}>
-          <Maximize2 size={15} />
-        </IconButton>
+      ),
+      menu: plain('note', onNote).menu,
+    },
+    undo: plain('undo', () => void undoLast(), { disabled: !undoLabel, tip: undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Nothing to undo' }),
+    redo: plain('redo', () => void redoLast(), { disabled: !redoLabel, tip: redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : 'Nothing to redo' }),
+    focus: plain('focus', () => selectedId && setFocus(selectedId), {
+      disabled: !selectedId,
+      tip: selectedId ? 'Focus on the selection (F)' : 'Select a checkpoint to focus on it',
+    }),
+    overview: plain('overview', () => overview()),
+    view: {
+      bar: (
         <Menu.Root>
           <Menu.Trigger asChild>
             <button className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg" aria-label="View options">
@@ -1302,22 +1341,77 @@ function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
             </button>
           </Menu.Trigger>
           <Menu.Content align="start">
-            <Menu.Label>Branches</Menu.Label>
-            <Menu.Item onSelect={() => setExpandedAll(true)}>Expand everything</Menu.Item>
-            <Menu.Item onSelect={() => setExpandedAll(false)}>Collapse to main checkpoints</Menu.Item>
-            <Menu.Separator />
-            <Menu.Label>Prerequisite arrows</Menu.Label>
-            <Menu.RadioGroup value={prereqMode} onValueChange={(v) => setState({ prereqMode: v as 'all' | 'selected' })}>
-              <Menu.RadioItem value="all">Show all</Menu.RadioItem>
-              <Menu.RadioItem value="selected">Only for the selection</Menu.RadioItem>
-            </Menu.RadioGroup>
-            <Menu.Separator />
-            <Menu.Item onSelect={() => saveLayout({ offsets: {} }, 'reset positions')} disabled={!Object.keys(rm.layout?.offsets ?? {}).length}>
-              Reset manual positions
+            <ViewOptions rm={rm} />
+          </Menu.Content>
+        </Menu.Root>
+      ),
+      menu: (
+        <Menu.Sub>
+          <Menu.SubTrigger>
+            {MAP_ICONS.view} View options
+          </Menu.SubTrigger>
+          <Menu.SubContent>
+            <ViewOptions rm={rm} />
+          </Menu.SubContent>
+        </Menu.Sub>
+      ),
+    },
+    legend: {
+      bar: <Legend />,
+      menu: (
+        <Menu.Sub>
+          <Menu.SubTrigger>
+            {MAP_ICONS.legend} Legend
+          </Menu.SubTrigger>
+          <Menu.SubContent>
+            <div className="w-80 p-2">
+              <LegendBody />
+            </div>
+          </Menu.SubContent>
+        </Menu.Sub>
+      ),
+    },
+    expand: plain('expand', () => setExpandedAll(true)),
+    collapse: plain('collapse', () => setExpandedAll(false)),
+    reset: plain('reset', () => saveLayout({ offsets: {} }, 'reset positions'), { disabled: !hasOffsets, tip: hasOffsets ? undefined : 'No positions moved by hand' }),
+    image: plain('image', saveImage),
+    export: plain('export', () => setState({ dialog: 'export', exportTarget: null })),
+  };
+
+  return (
+    <div className="@container pointer-events-none absolute left-3 right-3 top-3 z-10 flex flex-wrap items-start gap-2">
+      <div
+        className="pointer-events-auto flex max-w-full flex-wrap items-center gap-0.5 rounded-lg border-[1.5px] border-ink/80 bg-surface p-1 shadow-md"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setMoreOpen(true);
+        }}
+      >
+        {layout.map((id) => (
+          <Fragment key={id}>
+            {starts.has(id) && <span className="mx-1 h-5 w-px bg-line" />}
+            {tools[id]?.bar}
+          </Fragment>
+        ))}
+        <Menu.Root open={moreOpen} onOpenChange={setMoreOpen}>
+          <Tip label="More tools, and Customise toolbar">
+            <Menu.Trigger asChild>
+              <button className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg" aria-label="More tools">
+                <Ellipsis size={15} />
+              </button>
+            </Menu.Trigger>
+          </Tip>
+          <Menu.Content align="start">
+            {hidden.map((id) => (
+              <Fragment key={id}>{tools[id]?.menu}</Fragment>
+            ))}
+            {hidden.length > 0 && <Menu.Separator />}
+            <Menu.Item onSelect={() => customiseToolbar('map')}>
+              <SlidersHorizontal size={14} /> Customise toolbar…
             </Menu.Item>
           </Menu.Content>
         </Menu.Root>
-        <Legend />
       </div>
       {focusTitle && (
         <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-accent/30 bg-accent-soft py-1 pl-3 pr-1 text-[12.5px] text-accent shadow-sm">
@@ -1331,6 +1425,30 @@ function CanvasToolbar({ rm, onNote }: { rm: Roadmap; onNote: () => void }) {
   );
 }
 
+type Tool = { bar: ReactNode; menu: ReactNode };
+
+/** Branches, prerequisite arrows and positions: in the View options list, or under ⋯. */
+function ViewOptions({ rm }: { rm: Roadmap }) {
+  const prereqMode = useStore((s) => s.prereqMode);
+  return (
+    <>
+      <Menu.Label>Branches</Menu.Label>
+      <Menu.Item onSelect={() => setExpandedAll(true)}>Expand everything</Menu.Item>
+      <Menu.Item onSelect={() => setExpandedAll(false)}>Collapse to main checkpoints</Menu.Item>
+      <Menu.Separator />
+      <Menu.Label>Prerequisite arrows</Menu.Label>
+      <Menu.RadioGroup value={prereqMode} onValueChange={(v) => setState({ prereqMode: v as 'all' | 'selected' })}>
+        <Menu.RadioItem value="all">Show all</Menu.RadioItem>
+        <Menu.RadioItem value="selected">Only for the selection</Menu.RadioItem>
+      </Menu.RadioGroup>
+      <Menu.Separator />
+      <Menu.Item onSelect={() => saveLayout({ offsets: {} }, 'reset positions')} disabled={!Object.keys(rm.layout?.offsets ?? {}).length}>
+        Reset manual positions
+      </Menu.Item>
+    </>
+  );
+}
+
 function Legend() {
   return (
     <Menu.Root>
@@ -1338,52 +1456,58 @@ function Legend() {
         <button className="inline-flex h-7 items-center rounded-lg px-2 text-[12px] font-medium text-muted hover:bg-surface-2 hover:text-fg">Legend</button>
       </Menu.Trigger>
       <Menu.Content align="start" className="w-80 p-3">
-        <div className="grid gap-2 text-[12.5px]">
-          <div className="flex items-center gap-2">
-            <svg width="34" height="10"><line x1="2" y1="5" x2="32" y2="5" stroke="var(--spine)" strokeWidth="4" strokeLinecap="round" /></svg>Main path (main checkpoints in order)
-          </div>
-          <div className="flex items-center gap-2">
-            <svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="var(--branch)" strokeWidth="2" /></svg>Parent → sub-checkpoint
-          </div>
-          <div className="flex items-center gap-2">
-            <svg width="34" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--link)" strokeWidth="1.5" strokeDasharray="5 4" /><path d="M27 1 L34 5 L27 9 Z" fill="var(--link)" /></svg>Requires (prerequisite → checkpoint)
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-8 rounded-sm border-2 border-ink" style={{ background: 'var(--node-main)' }} />Main checkpoint
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-8 rounded-sm border-[1.5px] border-ink/70" style={{ background: 'var(--node-sub)' }} />Sub-checkpoint
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-4 w-8 rounded-sm border-[1.5px] border-dashed border-ink/70" style={{ background: 'var(--node-sub)' }} />Optional checkpoint
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-active)' }} />
-            <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-review)' }} />
-            <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-done-sub)' }} />
-            <span className="ml-1">In progress, needs review, complete</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="rounded border border-dashed border-line-strong px-1 text-[10.5px] text-faint">draft</span>Content not approved by you yet
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="ml-3 mr-3 size-2 rounded-full bg-accent" />Changed by an agent, not reviewed
-          </div>
-          <div className="mt-1 grid grid-cols-2 gap-1.5 border-t border-line pt-2">
-            <span className="flex items-center gap-1.5"><StatusIcon category="todo" /> Not started</span>
-            <span className="flex items-center gap-1.5"><StatusIcon category="active" /> In progress</span>
-            <span className="flex items-center gap-1.5"><StatusIcon category="review" /> Needs review</span>
-            <span className="flex items-center gap-1.5"><StatusIcon category="done" /> Complete</span>
-          </div>
-          <div className="mt-1 grid gap-1 border-t border-line pt-2 text-muted">
-            <div className="font-medium text-fg">Editing the map</div>
-            <div>Double-click a checkpoint to rename it. Drag its blue dot to another checkpoint to link them, or to empty space to add a sub-checkpoint.</div>
-            <div>Drop a checkpoint onto another to move it under that one. Right-click anything for more.</div>
-            <div>Shift+drag on empty space, or Ctrl+click, to select several and move, mark or delete them together.</div>
-          </div>
-        </div>
+        <LegendBody />
       </Menu.Content>
     </Menu.Root>
+  );
+}
+
+function LegendBody() {
+  return (
+    <div className="grid gap-2 text-[12.5px]">
+      <div className="flex items-center gap-2">
+        <svg width="34" height="10"><line x1="2" y1="5" x2="32" y2="5" stroke="var(--spine)" strokeWidth="4" strokeLinecap="round" /></svg>Main path (main checkpoints in order)
+      </div>
+      <div className="flex items-center gap-2">
+        <svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="var(--branch)" strokeWidth="2" /></svg>Parent → sub-checkpoint
+      </div>
+      <div className="flex items-center gap-2">
+        <svg width="34" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="var(--link)" strokeWidth="1.5" strokeDasharray="5 4" /><path d="M27 1 L34 5 L27 9 Z" fill="var(--link)" /></svg>Requires (prerequisite → checkpoint)
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-8 rounded-sm border-2 border-ink" style={{ background: 'var(--node-main)' }} />Main checkpoint
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-8 rounded-sm border-[1.5px] border-ink/70" style={{ background: 'var(--node-sub)' }} />Sub-checkpoint
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="h-4 w-8 rounded-sm border-[1.5px] border-dashed border-ink/70" style={{ background: 'var(--node-sub)' }} />Optional checkpoint
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-active)' }} />
+        <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-review)' }} />
+        <span className="h-4 w-5 rounded-sm border border-ink/50" style={{ background: 'var(--node-done-sub)' }} />
+        <span className="ml-1">In progress, needs review, complete</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="rounded border border-dashed border-line-strong px-1 text-[10.5px] text-faint">draft</span>Content not approved by you yet
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="ml-3 mr-3 size-2 rounded-full bg-accent" />Changed by an agent, not reviewed
+      </div>
+      <div className="mt-1 grid grid-cols-2 gap-1.5 border-t border-line pt-2">
+        <span className="flex items-center gap-1.5"><StatusIcon category="todo" /> Not started</span>
+        <span className="flex items-center gap-1.5"><StatusIcon category="active" /> In progress</span>
+        <span className="flex items-center gap-1.5"><StatusIcon category="review" /> Needs review</span>
+        <span className="flex items-center gap-1.5"><StatusIcon category="done" /> Complete</span>
+      </div>
+      <div className="mt-1 grid gap-1 border-t border-line pt-2 text-muted">
+        <div className="font-medium text-fg">Editing the map</div>
+        <div>Double-click a checkpoint to rename it. Drag its blue dot to another checkpoint to link them, or to empty space to add a sub-checkpoint.</div>
+        <div>Drop a checkpoint onto another to move it under that one. Right-click anything for more.</div>
+        <div>Shift+drag on empty space, or Ctrl+click, to select several and move, mark or delete them together.</div>
+      </div>
+    </div>
   );
 }
 

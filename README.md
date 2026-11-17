@@ -58,6 +58,7 @@ Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `
 | Write | Click anywhere in a section and type: the cursor goes where you clicked, a Docs-style formatting bar appears (text style, bold, italic, link, lists, and an **Insert** list for image, table, code, maths, quote and divider; in a narrow panel the rest is under **⋯**), it saves as you type and closes when you click elsewhere. `</>` switches to Markdown. The roadmap's title, description and goal are edited the same way. |
 | Progress | Set status yourself; learning roadmaps also have “can I explain / apply it?” |
 | Find | **Ctrl+K** searches titles and notes across all roadmaps |
+| Your toolbars | Arrange the map toolbar and the notes formatting bar yourself: **⋯ → Customise toolbar…** (or right-click either bar, or Ctrl+K). Tick what goes on the bar, put it in order with the arrows, and add extras such as *Expand everything*, *Save the map as an image* or a standalone *Table* button. Whatever isn't on a bar stays in its **⋯** menu; **Restore defaults** puts things back. Saved on this computer for every roadmap. |
 | Undo and redo | **Ctrl+Z** undoes, **Ctrl+Y** (or Ctrl+Shift+Z) redoes, also from the map toolbar: renames, statuses, moves, links, deletes, sticky notes and positions. History (per checkpoint) restores any earlier version; deleted items go to Trash |
 
 Progress of a checkpoint = completed sub-checkpoints ÷ all sub-checkpoints at every level below it,

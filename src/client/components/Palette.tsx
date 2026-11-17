@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Command } from 'cmdk';
 import { Dialog } from 'radix-ui';
-import { ArrowRight, Bot, Download, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, Sun } from 'lucide-react';
+import { ArrowRight, Bot, Download, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
 import { http } from '../api';
 import { getState, navigate, overview, selectCheckpoint, setFocus, setState, setTheme, useStore } from '../store';
 import { addCheckpoint } from '../actions';
+import { customiseToolbar } from '../toolbars';
 import { Kbd } from './ui';
 
 interface Hit {
@@ -155,6 +156,12 @@ export function CommandPalette() {
                     </Command.Item>
                     <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'shortcuts' }))}>
                       <Keyboard size={14} /> Keyboard shortcuts
+                    </Command.Item>
+                    <Command.Item className={item} onSelect={() => run(() => customiseToolbar('map'))}>
+                      <SlidersHorizontal size={14} /> Customise the map toolbar
+                    </Command.Item>
+                    <Command.Item className={item} onSelect={() => run(() => customiseToolbar('notes'))}>
+                      <SlidersHorizontal size={14} /> Customise the notes formatting bar
                     </Command.Item>
                   </Command.Group>
                   {summaries.length > 0 && (

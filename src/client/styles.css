@@ -529,8 +529,8 @@ body {
   color: var(--danger);
 }
 
-/* Crepe's built-in fixed formatting bar, made compact: one row, with a "⋯" menu for what doesn't fit
-   (src/client/topBarFit.ts), like Google Docs. */
+/* Crepe's built-in fixed formatting bar, made compact: your buttons in your order on one row, with a
+   "⋯" menu for the rest (src/client/formatBar.ts), like Google Docs. */
 .wm-editor .milkdown .milkdown-top-bar {
   flex-wrap: nowrap;
   top: 0;
@@ -568,8 +568,24 @@ body {
 .wm-editor .milkdown .milkdown-top-bar .top-bar-heading-label {
   min-width: 0;
 }
+/* Dividers between groups (ours, so they follow your order; Crepe's own are not used). */
+.wm-editor .milkdown .milkdown-top-bar .top-bar-inner > [data-wm-gap] {
+  position: relative;
+  margin-left: 8px;
+}
+.wm-editor .milkdown .milkdown-top-bar .top-bar-inner > [data-wm-gap]::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  width: 1px;
+  height: 18px;
+  margin-top: -9px;
+  background: var(--line);
+  pointer-events: none;
+}
 /* The text-kind list keeps one width, so the bar doesn't shift as the caret moves between kinds. */
-.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-selector:first-child .top-bar-heading-label {
+.wm-editor .milkdown .milkdown-top-bar [data-wm-item='heading'] .top-bar-heading-label {
   width: 84px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -623,13 +639,42 @@ body {
   color: var(--accent);
   fill: var(--accent);
 }
+.wm-bar-menu-item svg.wm-stroke {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.wm-bar-menu-item.active {
+  color: var(--accent);
+}
+.wm-bar-menu-sub {
+  padding-left: 18px;
+}
+.wm-bar-menu-label {
+  padding: 6px 8px 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--fg-faint);
+}
+.wm-bar-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--line);
+}
+/* Crepe's icons in the "Customise toolbar" list. */
+.wm-note-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--fg-muted);
+}
 /* Crepe draws the empty-editor hint with no height; leave room so a long hint in a narrow panel
    doesn't run over the next section. */
 .wm-editor .milkdown .ProseMirror:has(> .crepe-placeholder) {
   min-height: 6em;
 }
-/* "Insert" is last on the bar: open its list leftwards so it stays inside the panel. */
-.wm-editor .milkdown .milkdown-top-bar .top-bar-heading-selector:last-child .top-bar-heading-dropdown {
+/* A list in the right half of the bar opens leftwards, so it stays inside the panel. */
+.wm-editor .milkdown .milkdown-top-bar [data-wm-right] .top-bar-heading-dropdown {
   left: auto;
   right: 0;
 }

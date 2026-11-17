@@ -13,7 +13,9 @@ import { ApiError, http, subscribe, type ServerEvent } from './api';
 
 export type Route = { page: 'home' } | { page: 'roadmap'; id: string; cp?: string };
 export type SaveState = 'saved' | 'saving' | 'offline' | 'error';
-export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template' | 'export' | 'import';
+export type Dialog = null | 'new' | 'settings' | 'trash' | 'agent' | 'shortcuts' | 'palette' | 'paste' | 'template' | 'export' | 'import' | 'toolbar';
+/** The two bars you can arrange yourself (see toolbars.ts). */
+export type BarId = 'notes' | 'map';
 
 interface OutboxEntry {
   key: string;
@@ -94,6 +96,10 @@ interface State {
   /** Checkpoints (and sticky notes) waiting for "Delete?" confirmation. */
   pendingDelete: { ids: string[]; notes: string[] } | null;
   theme: 'system' | 'light' | 'dark';
+  /** Your own button order per bar; a bar you haven't changed isn't listed (it uses the default). */
+  toolbars: Partial<Record<BarId, string[]>>;
+  /** Which bar the "Customise toolbar" dialog is for. */
+  toolbarTarget: BarId;
 }
 
 const OUTBOX_KEY = 'waymark.outbox';
@@ -175,6 +181,15 @@ export const useStore = create<State>(() => ({
   noteEdit: null,
   pendingDelete: null,
   theme: (localStorage.getItem('waymark.theme') as State['theme']) ?? 'light',
+  toolbars: (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('waymark.toolbars') ?? '{}') as unknown;
+      return v && typeof v === 'object' ? (v as State['toolbars']) : {};
+    } catch {
+      return {};
+    }
+  })(),
+  toolbarTarget: 'notes',
 }));
 
 const set = useStore.setState;
