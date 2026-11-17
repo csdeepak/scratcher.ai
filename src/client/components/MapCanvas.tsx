@@ -32,6 +32,7 @@ import {
   useConnection,
   useInternalNode,
   useReactFlow,
+  useViewport,
   type Connection,
   type Edge,
   type EdgeProps,
@@ -293,7 +294,7 @@ const CheckpointNode = memo(function CheckpointNode({ id, data, selected, draggi
           {renaming ? (
             <RenameBox cp={cp} main={main} />
           ) : (
-            <div className={cx('line-clamp-2 min-w-0 flex-1 leading-[1.28]', main ? 'text-[14px] font-semibold' : 'text-[13px] font-medium')}>{cp.title}</div>
+            <div dir="auto" className={cx('line-clamp-2 min-w-0 flex-1 text-start leading-[1.28]', main ? 'text-[14px] font-semibold' : 'text-[13px] font-medium')}>{cp.title}</div>
           )}
           {held && (
             <Tip label="An agent change is waiting for your decision (Review)">
@@ -304,7 +305,7 @@ const CheckpointNode = memo(function CheckpointNode({ id, data, selected, draggi
           )}
           {unreviewed && !held && <span className="mt-1.5 size-2 flex-none rounded-full bg-accent" aria-label="Changed by an agent, not reviewed yet" />}
         </div>
-        <div className="flex items-center gap-1.5 pl-[23px] text-[11.5px]" style={{ color: brightFill ? '#57534e' : 'var(--fg-muted)' }}>
+        <div className="flex items-center gap-1.5 pl-[23px] text-[11.5px]" style={{ color: brightFill ? '#44403c' : 'var(--fg-muted)' }}>
           {progress && progress.total > 0 ? (
             <>
               <ProgressBar {...progress} className="max-w-[72px]" />
@@ -518,6 +519,28 @@ const FIT_PADDING = { top: '72px', left: '32px', right: '48px', bottom: '40px' }
 const edgeTypes = { prereq: PrereqEdge };
 const CONNECTION_LINE = { stroke: 'var(--link)', strokeWidth: 2.25, strokeDasharray: '6 5' };
 
+/**
+ * On a big map only the checkpoints on screen are drawn, so the Tab-stop checkpoint may not exist in
+ * the page. Then the map area itself takes the Tab stop (its focus handler brings that checkpoint into
+ * view), so keyboard users can always get into the map. Re-checked whenever the view moves.
+ */
+function MapTabStop({ wrapRef, tabStop }: { wrapRef: React.RefObject<HTMLDivElement | null>; tabStop: string | null }) {
+  const { x, y, zoom } = useViewport();
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      const drawn = !!tabStop && !!wrap.querySelector(`.react-flow__node[data-id="${CSS.escape(tabStop)}"]`);
+      wrap.tabIndex = tabStop && !drawn ? 0 : -1;
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [wrapRef, tabStop, x, y, zoom]);
+  return null;
+}
+
+/** Map pans and zooms are animated in script, so the CSS reduced-motion rule can't reach them. */
+const motion = (ms: number) => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : ms);
+
 const isTypingTarget = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
@@ -581,6 +604,13 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
 
   const notes = rm.layout?.notes;
   const groupSet = useMemo(() => new Set(group), [group]);
+  // Roving tab stop (the WAI-ARIA pattern for trees and grids): the map is one stop in the Tab order
+  // (the selected checkpoint, else the one selected last, else the first) and the arrow keys move
+  // between checkpoints, so keyboard users don't tab through every node of a big roadmap.
+  const lastSelected = useRef<string | null>(null);
+  if (selectedId && layout.byId.has(selectedId)) lastSelected.current = selectedId;
+  const tabStop =
+    selectedId && layout.byId.has(selectedId) ? selectedId : lastSelected.current && layout.byId.has(lastSelected.current) ? lastSelected.current : (layout.order[0] ?? null);
   const derived: AnyNode[] = useMemo(() => {
     const cpNodes: CPNode[] = layout.nodes.map((n) => ({
       id: n.cp.id,
@@ -589,6 +619,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
       width: NODE_W,
       height: NODE_H,
       selected: group.length ? groupSet.has(n.cp.id) : n.cp.id === selectedId,
+      focusable: n.cp.id === tabStop,
       zIndex: 2,
       ariaLabel: `${n.cp.title}, ${statusDef(profile, n.cp.status).label}`,
       data: {
@@ -631,7 +662,17 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
       ];
     });
     return [...noteNodes, ...cpNodes];
-  }, [layout, selectedId, profile, progress, unreviewed, held, mapRename, dropTarget, notes, selectedNote, noteEdit, group, groupSet, inGroup]);
+  }, [layout, selectedId, tabStop, profile, progress, unreviewed, held, mapRename, dropTarget, notes, selectedNote, noteEdit, group, groupSet, inGroup]);
+
+  // Keyboard focus follows the selection on the map, so the focus ring and the selected checkpoint
+  // are the same node. Focus elsewhere (the outline, an editor, a dialog) is left alone.
+  useEffect(() => {
+    if (!selectedId) return;
+    const active = document.activeElement as HTMLElement | null;
+    if (active && active !== document.body && active !== wrapRef.current && !active.closest('.react-flow__node')) return;
+    const raf = requestAnimationFrame(() => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(selectedId)}"]`)?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(raf);
+  }, [selectedId]);
 
   const [nodes, setNodes] = useState<AnyNode[]>(derived);
   const [capturing, setCapturing] = useState(false);
@@ -952,7 +993,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
       last = { w, h };
       if (t) clearTimeout(t);
       t = setTimeout(() => {
-        if (!userMoved.current) void flow.fitView({ padding: FIT_PADDING, duration: 200, maxZoom: 1.05, minZoom: 0.12 });
+        if (!userMoved.current) void flow.fitView({ padding: FIT_PADDING, duration: motion(200), maxZoom: 1.05, minZoom: 0.12 });
       }, 120);
     });
     ro.observe(el);
@@ -968,7 +1009,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
     userMoved.current = false;
     const t = setTimeout(() => {
       const focusIds = focusId ? layout.nodes.filter((n) => !n.dimmed).map((n) => ({ id: n.cp.id })) : undefined;
-      void flow.fitView({ padding: FIT_PADDING, duration: 320, maxZoom: 1.05, minZoom: 0.12, nodes: focusIds });
+      void flow.fitView({ padding: FIT_PADDING, duration: motion(320), maxZoom: 1.05, minZoom: 0.12, nodes: focusIds });
     }, 40);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -980,7 +1021,7 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
       const n = flow.getNode(centerRequest.id);
       if (!n) return;
       const z = Math.max(flow.getZoom(), 0.75);
-      void flow.setCenter(n.position.x + NODE_W / 2, n.position.y + NODE_H / 2, { zoom: z, duration: 320 });
+      void flow.setCenter(n.position.x + NODE_W / 2, n.position.y + NODE_H / 2, { zoom: z, duration: motion(320) });
     }, 60);
     return () => clearTimeout(t);
   }, [centerRequest, flow]);
@@ -1013,7 +1054,21 @@ export function MapCanvas({ rm, layout, progress }: { rm: Roadmap; layout: Layou
   const menuNote = menu?.kind === 'note' ? notes?.find((n) => n.id === menu.id) : undefined;
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full">
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full outline-none"
+      aria-label="Roadmap map"
+      onFocus={(e) => {
+        // The map area is the Tab stop only while the Tab-stop checkpoint is off screen (MapTabStop):
+        // bring it into view and move focus onto it.
+        if (e.target !== e.currentTarget || !tabStop) return;
+        const n = flow.getNode(tabStop);
+        if (!n) return;
+        void flow.setCenter(n.position.x + NODE_W / 2, n.position.y + NODE_H / 2, { zoom: flow.getZoom(), duration: 0 });
+        requestAnimationFrame(() => requestAnimationFrame(() => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(tabStop)}"]`)?.focus({ preventScroll: true })));
+      }}
+    >
+      <MapTabStop wrapRef={wrapRef} tabStop={tabStop} />
       <CtxMenu.Root onOpenChange={(o) => !o && setMenu(null)}>
         <CtxMenu.Trigger asChild>
           <ReactFlow<AnyNode>

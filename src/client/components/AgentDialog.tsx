@@ -186,7 +186,7 @@ Never rewrite or delete my existing notes, and never mark progress or understand
                 <Copy size={13} /> Copy prompt
               </Button>
             </div>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed">{prompt}</pre>
+            <pre tabIndex={0} aria-label="Prompt" className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2 p-3 font-mono text-[12px] leading-relaxed">{prompt}</pre>
           </div>
           <p className="text-[12px] leading-relaxed text-muted">
             Works in any agent that can open your workspace folder: the Claude app's Code tab or Cowork, Codex in the ChatGPT desktop app, Cursor and others (see <i>Connect your AI</i>). Once the agent has read AGENTS.md in a chat, you can simply say <b>"wrap up"</b> at the end.

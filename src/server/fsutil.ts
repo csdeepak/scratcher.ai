@@ -140,3 +140,15 @@ export function today(): string {
 export function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
+
+/** Runs `fn` for every item, at most `limit` at a time. Each call starts in item order. */
+export async function eachLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const item = items[next++]!;
+      await fn(item);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}

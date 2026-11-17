@@ -6,7 +6,7 @@ import { http } from '../api';
 import { getState, navigate, overview, selectCheckpoint, setFocus, setState, setTheme, useStore } from '../store';
 import { addCheckpoint } from '../actions';
 import { customiseToolbar } from '../toolbars';
-import { Kbd } from './ui';
+import { Kbd, useReturnFocus } from './ui';
 
 interface Hit {
   roadmapId: string;
@@ -35,6 +35,7 @@ const FIELD_LABEL: Record<string, string> = {
 
 export function CommandPalette() {
   const open = useStore((s) => s.dialog === 'palette');
+  const focusBack = useReturnFocus();
   const rm = useStore((s) => s.roadmap);
   const summaries = useStore((s) => s.summaries);
   const selectedId = useStore((s) => s.selectedId);
@@ -69,7 +70,7 @@ export function CommandPalette() {
     <Dialog.Root open={open} onOpenChange={(o) => setState({ dialog: o ? 'palette' : null })}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[60] bg-black/25" />
-        <Dialog.Content className="fixed left-1/2 top-[12vh] z-[61] w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-lg outline-none">
+        <Dialog.Content {...focusBack} className="fixed left-1/2 top-[12vh] z-[61] w-[calc(100vw-32px)] max-w-xl -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-lg outline-none">
           <Dialog.Title className="sr-only">Search and commands</Dialog.Title>
           <Dialog.Description className="sr-only">Search checkpoints and notes across all roadmaps, or run a command.</Dialog.Description>
           <Command label="Search and commands" shouldFilter={false} loop>

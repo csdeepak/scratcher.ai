@@ -8,3 +8,5 @@ examples/large-test.waymark.json
 dist-electron/
 release/
 .waymark-desktop-test/
+# Accessibility check output (npm run qa:a11y)
+qa-a11y-report.json

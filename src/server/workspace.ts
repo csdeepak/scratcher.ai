@@ -41,6 +41,7 @@ import {
   ensureDir,
   exists,
   listDirs,
+  eachLimit,
   listFiles,
   moveDir,
   moveFile,
@@ -1231,11 +1232,14 @@ export class Workspace extends EventEmitter {
         if (profile.understanding && !c.understanding) c.understanding = 'not-yet';
         rt.cps[c.id] = c;
       }
-      for (const cp of Object.values(rt.cps)) {
-        if (cp.parent && !rt.cps[cp.parent]) cp.parent = null;
+      const all = Object.values(rt.cps);
+      for (const cp of all) if (cp.parent && !rt.cps[cp.parent]) cp.parent = null;
+      // Several files at a time: each one waits for the disk (fsync), and one by one a 1,000-checkpoint
+      // import took ~17 s on Windows. File names are still chosen one at a time (before each write starts).
+      await eachLimit(all, 16, async (cp) => {
         const text = await this.writeCheckpoint(rt, cp);
         this.history.record({ roadmapId: meta.id, cp: cp.id, title: cp.title, source, kind: 'create', before: null, after: text });
-      }
+      });
       if (Object.keys(layout.offsets).length || layout.notes?.length) {
         const text = JSON.stringify(layout, null, 2) + '\n';
         rt.hashes.set('layout.json', hashText(text));

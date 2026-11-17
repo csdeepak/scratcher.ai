@@ -1,6 +1,6 @@
 // Small, consistent building blocks on top of Radix primitives.
 
-import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { ContextMenu, Dialog as RDialog, DropdownMenu, Tooltip as RTooltip, Popover as RPopover } from 'radix-ui';
 import { X } from 'lucide-react';
 import type { StatusCategory } from '../../shared/profiles';
@@ -44,7 +44,7 @@ export const IconButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTM
           aria-label={label}
           {...p}
           className={cx(
-            'inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-40 disabled:pointer-events-none',
+            'inline-flex flex-none items-center justify-center rounded-lg transition-colors disabled:opacity-40 disabled:pointer-events-none',
             size === 'sm' ? 'size-7' : 'size-8.5',
             active ? 'bg-accent-soft text-accent' : 'text-muted hover:text-fg hover:bg-surface-2',
             className,
@@ -218,6 +218,42 @@ export const Pop = {
 
 // ---------- dialogs ----------
 
+/**
+ * Radix dialogs give focus back to their Trigger when they close. Ours open from shortcuts, menus and
+ * state, so remember what had focus when one opened and return there (WCAG 2.4.3); otherwise keyboard
+ * and screen-reader users land at the top of the page.
+ */
+// The last element focused outside any dialog or menu: a dialog's own autofocus (the palette's search
+// box) can take focus before the dialog's open handler runs, so read it from here.
+let lastFocusOutside: HTMLElement | null = null;
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'focusin',
+    (e) => {
+      const t = e.target;
+      if (t instanceof HTMLElement && !t.closest('[role="dialog"], [role="menu"], [role="alertdialog"]')) lastFocusOutside = t;
+    },
+    true,
+  );
+}
+
+export function useReturnFocus() {
+  const from = useRef<HTMLElement | null>(null);
+  return {
+    onOpenAutoFocus: () => {
+      from.current = lastFocusOutside;
+    },
+    onCloseAutoFocus: (e: Event) => {
+      const el = from.current;
+      from.current = null;
+      if (el?.isConnected) {
+        e.preventDefault();
+        el.focus({ preventScroll: true });
+      }
+    },
+  };
+}
+
 export function Modal({
   open,
   onOpenChange,
@@ -235,11 +271,13 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  const focusBack = useReturnFocus();
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="fixed inset-0 z-[60] bg-black/30 backdrop-blur-[2px] data-[state=open]:animate-in" />
         <RDialog.Content
+          {...focusBack}
           className={cx(
             'fixed left-1/2 top-[8vh] z-[61] flex max-h-[84vh] w-[calc(100vw-32px)] -translate-x-1/2 flex-col rounded-2xl border border-line bg-surface shadow-lg outline-none',
             wide ? 'max-w-3xl' : 'max-w-lg',
@@ -269,11 +307,12 @@ export function Modal({
 }
 
 export function Drawer({ open, onOpenChange, title, children, side = 'right', width = 'w-[min(560px,100vw)]' }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; children: ReactNode; side?: 'left' | 'right'; width?: string }) {
+  const focusBack = useReturnFocus();
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="fixed inset-0 z-[55] bg-black/20" />
-        <RDialog.Content className={cx('fixed bottom-0 top-0 z-[56] flex flex-col border-line bg-surface shadow-lg outline-none', side === 'right' ? 'right-0 border-l' : 'left-0 border-r', width)}>
+        <RDialog.Content {...focusBack} className={cx('fixed bottom-0 top-0 z-[56] flex flex-col border-line bg-surface shadow-lg outline-none', side === 'right' ? 'right-0 border-l' : 'left-0 border-r', width)}>
           <RDialog.Title className="sr-only">{title}</RDialog.Title>
           <RDialog.Description className="sr-only">{title}</RDialog.Description>
           {children}
@@ -292,10 +331,12 @@ const statusColor: Record<StatusCategory, string> = {
   done: 'var(--done)',
 };
 
+const statusName: Record<StatusCategory, string> = { todo: 'Not started', active: 'In progress', review: 'Needs review', done: 'Complete' };
+
 export function StatusIcon({ category, size = 16, label }: { category: StatusCategory; size?: number; label?: string }) {
   const c = statusColor[category];
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label={label} className="flex-none">
+    <svg width={size} height={size} viewBox="0 0 16 16" role="img" aria-label={label ?? statusName[category]} className="flex-none">
       {category === 'todo' && <circle cx="8" cy="8" r="6.25" fill="none" stroke={c} strokeWidth="1.5" strokeDasharray="2.6 2.1" />}
       {category === 'active' && (
         <>
@@ -344,7 +385,7 @@ export function UnderstandingIcon({ level, size = 14 }: { level: 'not-yet' | 'ca
 export function Chip({ children, tone = 'neutral', className }: { children: ReactNode; tone?: 'neutral' | 'accent' | 'warn' | 'done' | 'danger' | 'understand'; className?: string }) {
   const tones = {
     neutral: 'bg-surface-2 text-muted border-line',
-    accent: 'bg-accent-soft text-accent border-transparent',
+    accent: 'bg-accent-soft text-accent-hover border-transparent',
     warn: 'bg-warn-soft text-review border-transparent',
     done: 'bg-done-soft text-done border-transparent',
     danger: 'bg-danger-soft text-danger border-transparent',

@@ -160,6 +160,7 @@ function OutlineRow({ node, style, dragHandle, profile, progress }: NodeRenderer
       <button
         tabIndex={-1}
         aria-hidden={!node.isInternal}
+        aria-label={node.isOpen ? 'Collapse' : 'Expand'}
         className={cx('flex size-5 flex-none items-center justify-center rounded text-faint hover:text-fg', !node.isInternal && 'invisible')}
         onClick={(e) => {
           e.stopPropagation();
@@ -169,7 +170,7 @@ function OutlineRow({ node, style, dragHandle, profile, progress }: NodeRenderer
         <ChevronRight size={13} className={cx('transition-transform', node.isOpen && 'rotate-90')} />
       </button>
       <StatusIcon category={st.category} size={13} label={st.label} />
-      {node.isEditing ? <RenameInput node={node} /> : <span className={cx('min-w-0 flex-1 truncate', node.level === 0 && 'font-medium', cp.optional && 'italic text-muted')}>{cp.title}</span>}
+      {node.isEditing ? <RenameInput node={node} /> : <span dir="auto" className={cx('min-w-0 flex-1 truncate text-start', node.level === 0 && 'font-medium', cp.optional && 'italic text-muted')}>{cp.title}</span>}
       {!node.isEditing && p && p.total > 0 && (
         <span className="flex-none text-[11px] tabular-nums text-faint">
           {p.done}/{p.total}

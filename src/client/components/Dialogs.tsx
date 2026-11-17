@@ -381,7 +381,7 @@ function ShortcutsDialog() {
     ['Space', 'Expand or collapse'],
     ['A', 'Add sub-checkpoint'],
     ['N', 'Add checkpoint after this one'],
-    ['Tab / Shift Tab', 'Indent / outdent'],
+    ['Tab / Shift Tab', 'Indent / outdent the selected checkpoint (Esc first to move on with Tab)'],
     ['Alt ↑ / Alt ↓', 'Move up / down'],
     ['F', 'Focus on this branch'],
     ['O', 'Overview (show everything)'],

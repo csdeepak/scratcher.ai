@@ -180,7 +180,9 @@ export function createApp(ws: Workspace) {
     const branch = c.req.query('branch') || null;
     const opts = { branch, personal: c.req.query('personal') !== '0', archived: c.req.query('archived') === '1' };
     const base = (branch && rm.checkpoints[branch] ? `${path.posix.basename(rm.slug)}-${slugify(rm.checkpoints[branch]!.title)}` : path.posix.basename(rm.slug)) || 'roadmap';
-    const attach = (ext: string) => c.header('Content-Disposition', `attachment; filename="${base}.${ext}"`);
+    // RFC 6266: an ASCII name for old clients, the real (possibly non-Latin) name in filename*.
+    const attach = (ext: string) =>
+      c.header('Content-Disposition', `attachment; filename="${base.replace(/[^\x20-\x7e]|"/g, '_')}.${ext}"; filename*=UTF-8''${encodeURIComponent(`${base}.${ext}`)}`);
     switch (format) {
       case 'json':
         attach('waymark.json');

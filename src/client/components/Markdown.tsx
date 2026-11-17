@@ -62,6 +62,16 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={REHYPE_PLUGINS}
         components={{
+          // dir="auto" per block (W3C i18n advice for user-written text): each paragraph, heading or
+          // list item runs right to left when it is written in Arabic, Hebrew, Urdu…, left to right otherwise.
+          p: ({ node: _n, ...p }) => <p dir="auto" {...p} />,
+          h1: ({ node: _n, ...p }) => <h1 dir="auto" {...p} />,
+          h2: ({ node: _n, ...p }) => <h2 dir="auto" {...p} />,
+          h3: ({ node: _n, ...p }) => <h3 dir="auto" {...p} />,
+          h4: ({ node: _n, ...p }) => <h4 dir="auto" {...p} />,
+          blockquote: ({ node: _n, ...p }) => <blockquote dir="auto" {...p} />,
+          td: ({ node: _n, ...p }) => <td dir="auto" {...p} />,
+          th: ({ node: _n, ...p }) => <th dir="auto" {...p} />,
           a: ({ node: _n, href, ...p }) => (
             <a
               {...p}
@@ -98,6 +108,7 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
               const offset = node.position.start.offset;
               return (
                 <li
+                  dir="auto"
                   className={className}
                   {...p}
                   onClickCapture={(e) => {
@@ -113,7 +124,7 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
               );
             }
             return (
-              <li className={className} {...p}>
+              <li dir="auto" className={className} {...p}>
                 {children}
               </li>
             );
@@ -279,6 +290,7 @@ function buildFormatBar(b: TopBarBuilder) {
  * (e.g. raw HTML), so the parent can switch to the raw Markdown editor instead.
  */
 export function RichEditor({
+  label,
   value,
   onChange,
   placeholder,
@@ -287,6 +299,8 @@ export function RichEditor({
   attach,
   caretAt,
 }: {
+  /** What screen readers call the editor, e.g. the section's name. */
+  label?: string;
   value: string;
   onChange: (md: string) => void;
   placeholder?: string;
@@ -396,6 +410,11 @@ export function RichEditor({
     let alive = true;
     void crepe.create().then(() => {
       if (!alive) return;
+      crepe.editor.action((ctx) => {
+        const dom = ctx.get(editorViewCtx).dom;
+        dom.setAttribute('aria-label', label ?? 'Notes');
+        dom.setAttribute('aria-multiline', 'true');
+      });
       const bar = el.querySelector<HTMLElement>('.milkdown-top-bar');
       // Commands from the ⋯ menu act on this editor and leave the caret in it, so typing and Ctrl+Z
       // carry on there rather than going to the map.

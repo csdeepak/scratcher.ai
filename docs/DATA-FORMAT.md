@@ -27,6 +27,11 @@ workspace/
   .waymark/                     app data: history/*.jsonl, review.json, trash/, archive/, broken/
 ```
 
+A `<slug>` is made from the title when the app creates the folder or file: letters, marks and digits of
+any script are kept (`मशीन-लर्निंग`, `机器学习入门`), Latin accents are simplified (`café` → `cafe`),
+everything else becomes `-`, at most 60 characters, and names Windows reserves (`con`, `nul`, `com1`…)
+get `-1`. Only the `id` identifies anything, so files you or an agent name differently are fine.
+
 ## roadmap.md
 
 ```markdown

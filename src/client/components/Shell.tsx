@@ -133,9 +133,9 @@ export function TopBar({ onImport }: { onImport: () => void }) {
       <div className="flex-1" />
       <button
         onClick={() => setState({ dialog: 'palette' })}
-        className="hidden h-8 w-64 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 text-[12.5px] text-faint hover:border-line-strong md:flex"
+        className="hidden h-8 w-64 items-center gap-2 whitespace-nowrap rounded-lg border border-line bg-surface-2 px-2.5 text-[12.5px] text-faint hover:border-line-strong md:flex"
       >
-        <Search size={14} /> Search checkpoints and notes <span className="ml-auto flex gap-0.5"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+        <Search size={14} className="flex-none" /> <span className="min-w-0 truncate">Search checkpoints and notes</span> <span className="ml-auto flex flex-none gap-0.5"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
       </button>
       <IconButton className="md:hidden" label="Search (Ctrl K)" onClick={() => setState({ dialog: 'palette' })}>
         <Search size={16} />
@@ -145,7 +145,8 @@ export function TopBar({ onImport }: { onImport: () => void }) {
       <Tip label={reviewCount ? `${reviewCount} item(s) to review` : 'Review agent changes and proposals (R)'}>
         <button
           onClick={() => setState({ reviewOpen: true })}
-          className={cx('relative flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium', reviewCount ? 'bg-accent-soft text-accent' : 'text-muted hover:bg-surface-2 hover:text-fg')}
+          aria-label={reviewCount ? `Review, ${reviewCount} item${reviewCount === 1 ? '' : 's'}` : 'Review'}
+          className={cx('relative flex h-8 items-center gap-1.5 rounded-lg px-2 text-[12.5px] font-medium', reviewCount ? 'bg-accent-soft text-accent-hover' : 'text-muted hover:bg-surface-2 hover:text-fg')}
         >
           <Inbox size={15} />
           <span className="hidden sm:inline">Review</span>
@@ -157,7 +158,7 @@ export function TopBar({ onImport }: { onImport: () => void }) {
           <IconButton label={outlineOpen ? 'Hide outline' : 'Show outline'} active={outlineOpen} onClick={toggleOutline}>
             <ListTree size={16} />
           </IconButton>
-          <IconButton label={detailsOpen ? 'Hide details' : 'Show details'} active={detailsOpen} onClick={() => setState({ detailsOpen: !detailsOpen, pageMode: false })} className="hidden md:inline-flex">
+          <IconButton label={detailsOpen ? 'Hide details' : 'Show details'} active={detailsOpen} onClick={() => setState({ detailsOpen: !detailsOpen, pageMode: false })} className="max-md:hidden">
             <PanelRight size={16} />
           </IconButton>
         </>
@@ -314,7 +315,7 @@ export function Home({ onImport }: { onImport: () => void }) {
   return (
     <div className="flex min-h-0 flex-1">
       <LibraryPane />
-      <div className="wm-scroll min-h-0 flex-1">
+      <main tabIndex={-1} className="wm-scroll min-h-0 flex-1 outline-none" aria-label="Your roadmaps">
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
           <div className="flex flex-wrap items-end gap-3">
             <div className="min-w-0">
@@ -414,21 +415,21 @@ export function Home({ onImport }: { onImport: () => void }) {
             <div className="flex flex-wrap items-center gap-1.5">
               <FolderOpen size={13} /> Workspace: <code className="font-mono">{workspace}</code>
               {desktop && (
-                <button className="ml-1 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.showWorkspace()}>
+                <button className="ml-1 min-h-6 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => void desktop.showWorkspace()}>
                   Show folder
                 </button>
               )}
-              <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'workspace' })}>
+              <button className="min-h-6 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'workspace' })}>
                 {desktop ? 'Change or move…' : 'About this folder'}
               </button>
-              <button className="rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'connect' })}>
+              <button className="min-h-6 rounded px-1.5 py-0.5 text-muted underline-offset-2 hover:bg-surface-2 hover:text-fg hover:underline" onClick={() => setState({ dialog: 'connect' })}>
                 Connect your AI…
               </button>
             </div>
             <div>Backups: a full backup (with attachments) of each roadmap every day in <code className="font-mono">backups/</code> (last 30 days). For off-machine safety, put the workspace in a synced folder or a git repository.</div>
           </footer>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
@@ -479,8 +480,21 @@ export function RoadmapView() {
       if (!s.roadmap || s.dialog || s.reviewOpen || e.defaultPrevented) return;
       if (document.querySelector('[role="dialog"], [role="menu"]')) return;
       if (isTyping(e.target)) return;
+      // Keys that buttons, links, menus and the outline use themselves stay theirs: on a control
+      // outside the map they act on that control, never on the selected checkpoint (WCAG 2.1.1, 2.1.2).
+      const target = e.target as HTMLElement | null;
+      const onMap = !target || target === document.body || target.tagName === 'MAIN' || !!target.closest('.react-flow__node');
+      if (!onMap && ['Enter', ' ', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Delete', 'Backspace'].includes(e.key)) return;
       const cps = s.roadmap.checkpoints;
-      const sel = s.selectedId && cps[s.selectedId] ? s.selectedId : null;
+      // A checkpoint with keyboard focus on the map is where the keys act, selected or not yet.
+      const focused = (document.activeElement as HTMLElement | null)?.closest?.('.react-flow__node')?.getAttribute('data-id') ?? null;
+      const focusedCp = focused && cps[focused] ? focused : null;
+      if (focusedCp && focusedCp !== s.selectedId && (e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        selectCheckpoint(focusedCp, { center: true });
+        return;
+      }
+      const sel = focusedCp ?? (s.selectedId && cps[s.selectedId] ? s.selectedId : null);
       const order = layoutRef.current?.order ?? [];
       const key = e.key;
       const mod = e.ctrlKey || e.metaKey;
@@ -561,6 +575,8 @@ export function RoadmapView() {
         case 'F':
           return setFocus(sel);
         case 'Tab':
+          // Indent only the selected checkpoint. With nothing selected (Escape), Tab leaves the map.
+          if (sel !== s.selectedId) return;
           e.preventDefault();
           return e.shiftKey ? outdent(sel) : indent(sel);
         case 'Delete':
@@ -605,7 +621,11 @@ export function RoadmapView() {
           <Outline rm={rm} progress={progress} />
         </Drawer>
       )}
-      <main className={cx('relative min-w-0 flex-1', pageMode && medium && 'hidden')} aria-label="Roadmap map">
+      <main tabIndex={-1} className={cx('relative min-w-0 flex-1 outline-none', pageMode && medium && 'hidden')} aria-label="Roadmap map" aria-describedby="wm-map-keys">
+        <h1 className="sr-only">{rm.meta.title}</h1>
+        <p id="wm-map-keys" className="sr-only">
+          Arrow keys move between checkpoints, Enter opens one, and Enter again renames it. Tab and Shift Tab indent or outdent the selected checkpoint: press Escape first to move on with Tab.
+        </p>
         <ReactFlowProvider>
           <MapCanvas rm={rm} layout={layout} progress={progress} />
         </ReactFlowProvider>
@@ -632,9 +652,9 @@ export function RoadmapView() {
         </aside>
       )}
       {detailsOverlay && (
-        <div className="fixed inset-x-0 bottom-0 top-12 z-40 border-t border-line bg-surface shadow-lg">
+        <aside className="fixed inset-x-0 bottom-0 top-12 z-40 border-t border-line bg-surface shadow-lg" aria-label="Details">
           <DetailsPanel rm={rm} progress={progress} />
-        </div>
+        </aside>
       )}
       <Modal
         open={!!pendingDelete}

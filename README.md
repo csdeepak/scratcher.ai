@@ -39,7 +39,8 @@ Open http://localhost:4317. The first start creates `./workspace` with a small e
 Options: `npm start -- --workspace "D:/Roadmaps" --port 4400` (or `WAYMARK_WORKSPACE`, `WAYMARK_PORT`).
 In Chrome or Edge you can install the page as an app (address bar → Install) for its own window.
 
-Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `npm test`.
+Development: `npm run dev` (UI on :5173 with hot reload, API on :4317). Tests: `npm test`. Accessibility,
+keyboard, language and large-roadmap checks before a release: [docs/QA.md](docs/QA.md) (`npm run qa:a11y`).
 
 ## Everyday use
 

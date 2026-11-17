@@ -20,16 +20,29 @@ export function isValidId(id: unknown): id is string {
   return typeof id === 'string' && ID_PATTERN.test(id);
 }
 
+/** Names Windows reserves for devices: a file or folder called this can't be opened by most tools. */
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
+
+/**
+ * A readable file or folder name from a title, in any language (the approach of github-slugger, ISC):
+ * letters, marks and digits of every script are kept, Latin accents are dropped (café → cafe), and
+ * everything else becomes "-". At most 60 characters; never a name Windows reserves.
+ */
 export function slugify(title: string, fallback = 'untitled'): string {
-  const s = title
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+  const s = Array.from(
+    title
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .normalize('NFC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{M}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, ''),
+  )
     .slice(0, 60)
+    .join('')
     .replace(/-+$/g, '');
-  return s || fallback;
+  const out = s || fallback;
+  return WINDOWS_RESERVED.test(out) ? `${out}-1` : out;
 }
 
 /** Stable, fast, non-cryptographic hash (FNV-1a 32-bit) for change detection. */

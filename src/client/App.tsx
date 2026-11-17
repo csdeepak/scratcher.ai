@@ -52,6 +52,13 @@ export function App() {
   return (
     <Tooltip.Provider>
       <div className="flex h-full flex-col">
+        {/* Skip link (WCAG 2.4.1, the GOV.UK pattern): first Tab stop, shown only when focused. */}
+        <button
+          className="sr-only z-[100] rounded-lg bg-accent px-3 py-2 text-[13px] font-medium text-accent-fg focus:not-sr-only focus:fixed focus:left-2 focus:top-2"
+          onClick={() => document.querySelector<HTMLElement>('main')?.focus()}
+        >
+          Skip to main content
+        </button>
         <TopBar onImport={openImport} />
         {route.page === 'home' ? <Home onImport={openImport} /> : <RoadmapView />}
       </div>

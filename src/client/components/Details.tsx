@@ -110,13 +110,13 @@ function CheckpointDetails({ rm, cp, progress }: { rm: Roadmap; cp: Checkpoint; 
       )}
       <div className="mb-2 flex items-center gap-1">
         <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-[12px] text-faint">
-          <button className="truncate rounded px-1 hover:bg-surface-2 hover:text-fg" onClick={() => selectCheckpoint(null)}>
+          <button className="min-h-6 truncate rounded px-1 hover:bg-surface-2 hover:text-fg" onClick={() => selectCheckpoint(null)}>
             {rm.meta.title}
           </button>
           {path.map((a) => (
             <span key={a.id} className="flex min-w-0 items-center gap-0.5">
               <ChevronRight size={12} className="flex-none" />
-              <button className="max-w-40 truncate rounded px-1 hover:bg-surface-2 hover:text-fg" onClick={() => selectCheckpoint(a.id, { center: true })}>
+              <button className="min-h-6 max-w-40 truncate rounded px-1 hover:bg-surface-2 hover:text-fg" onClick={() => selectCheckpoint(a.id, { center: true })}>
                 {a.title}
               </button>
             </span>
@@ -131,6 +131,7 @@ function CheckpointDetails({ rm, cp, progress }: { rm: Roadmap; cp: Checkpoint; 
         </IconButton>
       </div>
 
+      <h2 className="sr-only">{cp.title}</h2>
       <TitleField cp={cp} />
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -153,7 +154,7 @@ function CheckpointDetails({ rm, cp, progress }: { rm: Roadmap; cp: Checkpoint; 
 
       {p && (p.total > 0 || p.optionalTotal > 0) && <ChildrenBlock rm={rm} cp={cp} profile={profile} progress={p} />}
       {(!p || (p.total === 0 && p.optionalTotal === 0)) && (
-        <button className="mt-3 flex items-center gap-1.5 rounded-lg px-1 text-[12.5px] text-muted hover:text-accent" onClick={() => addCheckpoint(cp.id)}>
+        <button className="mt-3 flex min-h-6 items-center gap-1.5 rounded-lg px-1 text-[12.5px] text-muted hover:text-accent" onClick={() => addCheckpoint(cp.id)}>
           <Plus size={13} /> Add sub-checkpoint
         </button>
       )}
@@ -316,6 +317,7 @@ function TitleField({ cp }: { cp: Checkpoint }) {
   };
   return (
     <textarea
+      dir="auto"
       ref={ref}
       id="details-title"
       rows={1}
@@ -351,6 +353,7 @@ function SummaryField({ cp }: { cp: Checkpoint }) {
   }, [v]);
   return (
     <textarea
+      dir="auto"
       ref={ref}
       rows={1}
       value={v}
@@ -686,7 +689,7 @@ function SectionBlock({ cp, sectionKey, extra, attach }: { cp: Checkpoint; secti
               }
             }}
           >
-            <RichEditor key={editorKey} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} attach={attach} caretAt={caretAt} />
+            <RichEditor key={editorKey} label={def.label} value={draft} onChange={onChange} autoFocus placeholder={def.hint} onLossy={() => setLossy(true)} attach={attach} caretAt={caretAt} />
           </div>
         )
       ) : (
@@ -813,7 +816,7 @@ function AttachmentsBlock({ rm, cp, attach }: { rm: Roadmap; cp: Checkpoint; att
       <div className="mb-1.5 flex items-center gap-2 px-2">
         <h3 className="text-[12.5px] font-semibold">Attachments</h3>
         <span className="text-[11px] text-faint">{items.length || ''}</span>
-        <button className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent" onClick={() => input.current?.click()}>
+        <button className="ml-auto flex min-h-6 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent" onClick={() => input.current?.click()}>
           <Plus size={13} /> Add
         </button>
         <input
@@ -876,7 +879,7 @@ function ResourcesBlock({ cp }: { cp: Checkpoint }) {
       <div className="mb-1.5 flex items-center gap-2 px-2">
         <h3 className="text-[12.5px] font-semibold">Resources</h3>
         <span className="text-[11px] text-faint">{cp.resources.length || ''}</span>
-        <button className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent" onClick={() => setEditing('new')}>
+        <button className="ml-auto flex min-h-6 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent" onClick={() => setEditing('new')}>
           <Plus size={13} /> Add
         </button>
       </div>
@@ -999,6 +1002,7 @@ function CompletionField({ cp }: { cp: Checkpoint }) {
     <section className="mt-5 px-2" aria-label="Completion criterion">
       <h3 className="mb-1 text-[12.5px] font-semibold">Done when…</h3>
       <textarea
+      dir="auto"
         rows={1}
         value={v}
         onChange={(e) => setV(e.target.value)}
@@ -1066,7 +1070,7 @@ function PrereqPicker({ rm, cp }: { rm: Roadmap; cp: Checkpoint }) {
   return (
     <Pop.Root open={open} onOpenChange={setOpen}>
       <Pop.Trigger asChild>
-        <button className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent">
+        <button className="flex min-h-6 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-muted hover:bg-surface-2 hover:text-accent">
           <Plus size={13} /> Add
         </button>
       </Pop.Trigger>
@@ -1193,6 +1197,7 @@ function RoadmapOverview({ rm, progress }: { rm: Roadmap; progress: Map<string |
 
   return (
     <div className="px-5 pb-16 pt-5">
+      <h2 className="sr-only">Roadmap overview</h2>
       <div className="text-[12px] font-medium text-faint">{profile.label} roadmap</div>
       <MetaField
         rm={rm}
@@ -1310,6 +1315,7 @@ function MetaField({ rm, field, label, placeholder, className }: { rm: Roadmap; 
   };
   return (
     <textarea
+      dir="auto"
       ref={ref}
       rows={1}
       value={v}
@@ -1401,7 +1407,7 @@ function OverviewEditor({ rm }: { rm: Roadmap }) {
             }
           }}
         >
-          <RichEditor value={draft} onChange={onChange} autoFocus caretAt={caretAt} placeholder="What do you want to achieve? What do you know already? Constraints?" />
+          <RichEditor label="Goal and context" value={draft} onChange={onChange} autoFocus caretAt={caretAt} placeholder="What do you want to achieve? What do you know already? Constraints?" />
         </div>
       ) : rm.meta.overview ? (
         <div

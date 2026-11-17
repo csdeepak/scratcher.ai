@@ -300,10 +300,10 @@ function RoadmapRow({ r, depth, active, onOpen }: { r: RoadmapSummary; depth: nu
         }}
       >
         <span aria-hidden className="absolute bottom-1 top-1 w-[5px] rounded-sm" style={{ left: 2 + depth * 14, background: color }} />
-        <button className="min-w-0 flex-1 truncate pl-2 text-left" onClick={onOpen} title={r.description || r.title}>
+        <button dir="auto" className="min-w-0 flex-1 truncate pl-2 text-start" onClick={onOpen} title={r.description || r.title}>
           {r.title}
         </button>
-        {pct !== null && <span className="flex-none text-[11px] tabular-nums text-faint">{pct}%</span>}
+        {pct !== null && <span className={cx('flex-none text-[11px] tabular-nums', active ? 'text-muted' : 'text-faint')}>{pct}%</span>}
         <RoadmapMenu r={r} />
       </div>
     </li>

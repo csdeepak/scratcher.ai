@@ -29,7 +29,7 @@
   --line-strong: #cdc6b6;
   --fg: #1c1917;
   --fg-muted: #57534e;
-  --fg-faint: #8a837a;
+  --fg-faint: #6a655e; /* 4.5:1 or better on every light surface (WCAG AA) */
   --ink: #1f2937; /* node borders */
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
@@ -76,7 +76,7 @@
   --line-strong: #4a4740;
   --fg: #eeece7;
   --fg-muted: #b0aba1;
-  --fg-faint: #7f7a71;
+  --fg-faint: #97928a; /* 4.5:1 or better on every dark surface (WCAG AA) */
   --ink: #0c0a09;
   --accent: #60a5fa;
   --accent-hover: #93c5fd;
@@ -677,4 +677,15 @@ body {
 .wm-editor .milkdown .milkdown-top-bar [data-wm-right] .top-bar-heading-dropdown {
   left: auto;
   right: 0;
+}
+
+/* React Flow's credit link: readable like the rest of the faint text (its default grey is 2.7:1). */
+.react-flow__attribution a {
+  color: var(--fg-muted);
+}
+
+/* Notes in right-to-left languages: each paragraph of the editor orders its text by its own first
+   letter, so mixed Arabic/English lines read correctly (the reading view also aligns them, dir="auto"). */
+.milkdown .ProseMirror :is(p, li, h1, h2, h3, h4, blockquote, td, th) {
+  unicode-bidi: plaintext;
 }
