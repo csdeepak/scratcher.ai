@@ -138,9 +138,24 @@ section with paths relative to the checkpoint file, so other Markdown tools disp
 [Merge conflicts](cp-q1w2e3r4)        ← a link to another checkpoint, by id
 ```
 
-Encode spaces and brackets in paths (`%20`, `%28`, `%29`). The app shows images inline, opens images and
-PDFs in its viewer, and follows checkpoint links; other links open in a new tab. Exports embed attached
-images, so a saved web page or PDF contains them.
+Encode spaces and brackets in paths (`%20`, `%28`, `%29`). The app shows images inline, opens images,
+PDFs, video and audio in its viewer, and follows checkpoint links; other links open in a new tab. Exports
+embed attached images, so a saved web page or PDF contains them.
+
+| Kind | Extensions | Limit | In the app |
+|---|---|---|---|
+| Image | png jpg jpeg gif webp avif bmp svg | 50 MB | inline and in the viewer |
+| PDF | pdf | 50 MB | viewer (pdf.js) |
+| Video | mp4 m4v mov webm ogv | 500 MB | viewer; a link on its own line plays in the note |
+| Audio | mp3 m4a aac wav ogg oga opus flac | 500 MB | viewer; a link on its own line plays in the note |
+| Document | txt md csv json ipynb doc docx xls xlsx ppt pptx odt ods odp rtf epub zip | 50 MB | download; *Open* in the desktop app hands it to the system's app |
+
+Other types are refused. Documents are always served as downloads with a sandbox policy, never shown in
+the page. Daily backups and `.waymark.zip` exports leave video and audio out (they stay in the folder).
+
+**Online videos.** A YouTube, Vimeo or Loom link standing alone on its line renders as a *Play* card; the
+provider's player loads only when it is pressed (`youtube-nocookie.com`, Vimeo `dnt=1`). Start times come
+from the link (`t=750`, `t=12m30s`, `#t=1:30`) or a resource's `start`. The Markdown stays a plain link.
 
 ## Maths
 
@@ -261,9 +276,10 @@ Requests from other websites are refused (Origin and Host checks). JSON in and o
 | `POST /api/import?folder=` | a `.waymark.json` bundle |
 | `POST /api/import/zip?folder=` | a `.waymark.zip` full backup as the body; returns `{roadmapId, warnings, attachments}` |
 | `POST /api/import/markdown` | `{text, title?, profile?, folder?}`: headings and lists become checkpoints |
-| `POST /api/roadmaps/:id/attachments?cp=&name=` | file bytes as the body; returns `{path, markdownPath}` |
+| `POST /api/roadmaps/:id/attachments?cp=&name=` | file bytes as the body, streamed to disk; returns `{name, path, markdownPath, kind, size}` |
 | `DELETE /api/roadmaps/:id/attachments?path=` | moves an attachment to Trash |
-| `GET /api/roadmaps/:id/files/attachments/…` | serves an attached file (`?download=1` to download) |
+| `GET /api/roadmaps/:id/files/attachments/…` | serves an attached file with range requests (`206`) for seeking; `?download=1` to download (documents always download) |
+| `POST /api/link-info` | `{url}` → `{title?, site?, kind?, start?}` for a resource; YouTube/Vimeo via oEmbed, other pages via their title tags (5 s timeout, first 1 MB) |
 | `GET /api/review` · `POST /api/review/:itemId` | `{action: keep\|revert\|apply\|discard, fields?}` |
 | `POST /api/roadmaps/:id/proposals` | paste `{text}` |
 | `POST /api/roadmaps/:id/proposals/:name/apply` · `/reject` | `{indexes}` |

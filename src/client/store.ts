@@ -9,6 +9,7 @@ import { applyOps, type Op, type OpResult } from '../shared/ops';
 import { ancestors } from '../shared/tree';
 import type { ReviewItem } from '../server/review';
 import type { ProposalView } from '../server/workspace';
+import type { AttachmentKind, Embed } from '../shared/media';
 import { ApiError, http, subscribe, type ServerEvent } from './api';
 
 export type Route = { page: 'home' } | { page: 'roadmap'; id: string; cp?: string };
@@ -61,8 +62,8 @@ interface State {
   libraryDrawer: boolean;
   /** Roadmap the Export dialog is for (defaults to the open one). */
   exportTarget: string | null;
-  /** Attached image or PDF open in the full-screen viewer. */
-  viewer: { roadmapId: string; path: string; name: string; kind: 'image' | 'pdf' | 'other' } | null;
+  /** Attached file, or a YouTube/Vimeo/Loom video (`embed`), open in the full-screen viewer. */
+  viewer: { roadmapId: string; path: string; name: string; kind: AttachmentKind | 'embed'; embed?: Embed } | null;
   workspaceProblems: Problem[];
   connected: boolean;
   route: Route;

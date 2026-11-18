@@ -27,13 +27,33 @@ const HELPERS = `window.qa = {
   async until(fn, ms = 4000) { const t = Date.now(); while (Date.now() - t < ms) { if (fn()) return true; await qa.wait(100); } throw new Error('Timed out: ' + fn); },
 };`;
 
+// Findings checked by hand and accepted, each with the reason. Keep this list short.
+const KNOWN = [
+  {
+    // The outline (react-arborist) is a focusable role=tree whose arrow keys move through and scroll the
+    // list; axe only sees that the virtual list's inner scroller isn't focusable itself. Making it
+    // focusable breaks the tree's allowed children (aria-required-children), which is worse.
+    id: 'scrollable-region-focusable',
+    target: /^div\[role="tree"\] > div$/,
+  },
+];
+const known = (id, target) => KNOWN.some((k) => k.id === id && k.target.test(target));
+
 const ROADMAP = '#/r/rm-example1';
 const CP = '#/r/rm-example1/cp-gitundo01';
 const SCREENS = [
   { name: 'Home', hash: '' },
   { name: 'Roadmap map', hash: ROADMAP },
   { name: 'Checkpoint page', hash: CP },
-  { name: 'Notes editor', hash: CP, steps: [`qa.click('My notes')`, `await qa.until(() => document.querySelector('.ProseMirror'))`] },
+  {
+    name: 'Notes editor',
+    hash: CP,
+    steps: [
+      // An empty "My notes" is a button; one with text opens when you click its text.
+      `const b = qa.btn('My notes'); if (b) b.click(); else { const s = [...document.querySelectorAll('section')].find((x) => x.querySelector('h3')?.textContent?.trim() === 'My notes'); (s?.querySelector('p') ?? s)?.click(); }`,
+      `await qa.until(() => document.querySelector('.ProseMirror'))`,
+    ],
+  },
   { name: 'New roadmap dialog', hash: '', steps: [`qa.click('New roadmap')`] },
   { name: 'Command palette', hash: ROADMAP, steps: [`qa.key('k', { ctrlKey: true })`] },
   { name: 'Connect your AI', hash: '', steps: [`qa.click('Connect your AI')`] },
@@ -68,6 +88,8 @@ async function run() {
         }
         await win.webContents.executeJavaScript(`${AXE}; 0`);
         const r = await win.webContents.executeJavaScript(`axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] }, resultTypes: ['violations'] }).then((r) => r.violations.map((v) => ({ id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.map((n) => ({ target: n.target.join(' '), html: n.html.slice(0, 160), why: (n.any[0] || n.all[0] || n.none[0] || {}).message })) })))`);
+        for (const v of r) v.nodes = v.nodes.filter((n) => !known(v.id, n.target));
+        r.splice(0, r.length, ...r.filter((v) => v.nodes.length));
         results.push({ screen: label, violations: r });
         const line = r.length ? r.map((x) => `${x.impact}:${x.id}×${x.nodes.length}`).join('  ') : 'no violations';
         console.log(`${label.padEnd(36)} ${line}`);

@@ -30,6 +30,7 @@ import { readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { copyWorkspace, inspectFolder, isInside, type FolderInfo } from './folders';
+import { ATTACHMENT_TYPES } from '../src/shared/media';
 import { checkForUpdatesNow, initUpdates, probeUpdates } from './updates';
 
 const isMac = process.platform === 'darwin';
@@ -475,6 +476,17 @@ else {
   ipcMain.handle('waymark:choose-folder', (e, start: unknown) => (fromApp(e) ? chooseFolder('Choose a folder for your roadmaps', str(start)) : null));
   ipcMain.handle('waymark:use-folder', (e, dir: unknown) => (fromApp(e) ? useFolder(str(dir)) : { ok: false, error: 'Not allowed.' }));
   ipcMain.handle('waymark:move-workspace', (e, dir: unknown) => (fromApp(e) ? moveWorkspace(str(dir)) : { ok: false, error: 'Not allowed.' }));
+  // Open an attached document in the system's app. Only documents (Word, CSV, notebooks…) inside the
+  // workspace's attachments folders: never programs, scripts or anything else (docs/MEDIA.md).
+  ipcMain.handle('waymark:open-file', async (e, raw: unknown) => {
+    if (!fromApp(e) || !workspace) return { ok: false, error: 'Not allowed.' };
+    const file = path.resolve(str(raw));
+    const ext = path.extname(file).slice(1).toLowerCase();
+    const inAttachments = isInside(file, workspace) && file.split(path.sep).includes('attachments');
+    if (!inAttachments || ATTACHMENT_TYPES[ext]?.kind !== 'other') return { ok: false, error: 'Only attached documents can be opened this way.' };
+    const err = await shell.openPath(file);
+    return err ? { ok: false, error: err } : { ok: true };
+  });
 
   void app.whenReady().then(async () => {
     session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => {

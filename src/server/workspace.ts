@@ -3,7 +3,11 @@
 // It is the single writer for app edits; all mutations run one at a time.
 
 import { EventEmitter } from 'node:events';
-import { existsSync, readFileSync, readdirSync, promises as fs } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, readdirSync, promises as fs } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { ATTACHABLE_DESCRIPTION, isPlayable, maxBytesFor } from '../shared/media';
 import path from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
@@ -1270,8 +1274,9 @@ export class Workspace extends EventEmitter {
   }
 
   /**
-   * Full backup: roadmap.waymark.json (all data) plus every attached file under attachments/.
-   * Already-compressed files (images, PDFs) are stored as they are.
+   * Full backup: roadmap.waymark.json (all data) plus every attached file under attachments/, except
+   * video and audio (they can be hundreds of MB; they stay in the workspace folder). Already-compressed
+   * files (images, PDFs) are stored as they are.
    */
   async exportZip(id: string): Promise<Uint8Array> {
     const rt = this.rt(id);
@@ -1280,6 +1285,7 @@ export class Workspace extends EventEmitter {
     };
     for (const list of Object.values(rt.attachments)) {
       for (const a of list) {
+        if (isPlayable(a.name)) continue;
         try {
           files[a.path] = [new Uint8Array(await fs.readFile(path.join(rt.dir, ...a.path.split('/')))), { level: 0 }];
         } catch {
@@ -1331,7 +1337,7 @@ export class Workspace extends EventEmitter {
         const clean = safeFileName(file);
         const ext = clean.split('.').pop()?.toLowerCase() ?? '';
         const bytes = entries[name]!;
-        if (!rt.cps[cp] || clean !== file || !ATTACHMENT_TYPES[ext] || bytes.byteLength > MAX_ATTACHMENT_BYTES) {
+        if (!rt.cps[cp] || clean !== file || !ATTACHMENT_TYPES[ext] || bytes.byteLength > maxBytesFor(file)) {
           warnings.push(`Skipped ${name}`);
           continue;
         }
@@ -1489,8 +1495,8 @@ export class Workspace extends EventEmitter {
       if (!rt.cps[checkpointId]) throw new HttpError(404, 'Checkpoint not found.');
       const clean = safeFileName(fileName);
       const ext = clean.split('.').pop()?.toLowerCase() ?? '';
-      if (!ATTACHMENT_TYPES[ext]) throw new HttpError(415, 'Attach images (PNG, JPG, GIF, WebP, SVG, AVIF, BMP) or PDF files.');
-      if (data.byteLength > MAX_ATTACHMENT_BYTES) throw new HttpError(413, `Files up to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB can be attached.`);
+      if (!ATTACHMENT_TYPES[ext]) throw new HttpError(415, `You can attach ${ATTACHABLE_DESCRIPTION}.`);
+      if (data.byteLength > maxBytesFor(clean)) throw new HttpError(413, `Files like this can be up to ${maxBytesFor(clean) / 1024 / 1024} MB.`);
       if (data.byteLength === 0) throw new HttpError(400, 'That file is empty.');
       const dirRel = `attachments/${checkpointId}`;
       await ensureDir(path.join(rt.dir, dirRel));
@@ -1501,6 +1507,45 @@ export class Workspace extends EventEmitter {
       const rel = `${dirRel}/${name}`;
       return { name, path: rel, markdownPath: `../${rel}`, kind: ATTACHMENT_TYPES[ext]!.kind };
     });
+  }
+
+  /**
+   * Save a file sent by the page, streamed straight to disk: videos can be hundreds of MB, so they are
+   * never held in memory. Checked against the type list and its size limit while it arrives.
+   */
+  async addAttachmentStream(roadmapId: string, checkpointId: string, fileName: string, body: ReadableStream<Uint8Array> | null) {
+    const rt = this.rt(roadmapId);
+    if (!rt.cps[checkpointId]) throw new HttpError(404, 'Checkpoint not found.');
+    const clean = safeFileName(fileName);
+    const ext = clean.split('.').pop()?.toLowerCase() ?? '';
+    if (!ATTACHMENT_TYPES[ext]) throw new HttpError(415, `You can attach ${ATTACHABLE_DESCRIPTION}.`);
+    if (!body) throw new HttpError(400, 'That file is empty.');
+    const limit = maxBytesFor(clean);
+    const dirRel = `attachments/${checkpointId}`;
+    await ensureDir(path.join(rt.dir, dirRel));
+    const tmp = path.join(rt.dir, dirRel, `.${randomBytes(6).toString('hex')}.upload`);
+    let size = 0;
+    try {
+      const count = new Transform({
+        transform(chunk: Buffer, _enc, done) {
+          size += chunk.length;
+          done(size > limit ? new HttpError(413, `Files like this can be up to ${limit / 1024 / 1024} MB.`) : null, chunk);
+        },
+      });
+      await pipeline(Readable.fromWeb(body as import('node:stream/web').ReadableStream<Uint8Array>), count, createWriteStream(tmp));
+      if (size === 0) throw new HttpError(400, 'That file is empty.');
+      return await this.run(async () => {
+        if (!rt.cps[checkpointId]) throw new HttpError(404, 'Checkpoint not found.');
+        const name = this.uniqueAttachmentName(rt, dirRel, clean);
+        await moveFile(tmp, path.join(rt.dir, dirRel, name));
+        await this.scanAttachments(rt);
+        this.emitEvent({ type: 'roadmap', roadmapId, ids: [checkpointId], source: 'app' });
+        const rel = `${dirRel}/${name}`;
+        return { name, path: rel, markdownPath: `../${rel}`, kind: ATTACHMENT_TYPES[ext]!.kind, size };
+      });
+    } finally {
+      await fs.rm(tmp, { force: true }).catch(() => {});
+    }
   }
 
   /** Absolute path of a file inside a roadmap's attachments folder, or an error for anything else. */

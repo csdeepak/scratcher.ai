@@ -1,7 +1,7 @@
 // Instructions written into the workspace for any AI agent that edits it.
 // Bump AGENTS_VERSION_MARK when the text changes; untouched older copies are upgraded.
 
-export const AGENTS_VERSION_MARK = '<!-- waymark:agents v4 -->';
+export const AGENTS_VERSION_MARK = '<!-- waymark:agents v5 -->';
 
 export const CLAUDE_MD = `# Claude instructions for this folder
 
@@ -173,11 +173,16 @@ Waymark → Review → Paste proposal and previews it before anything changes.
 
 ## Attachments and links
 
-- Images and PDFs for a checkpoint live in \`<roadmap>/attachments/<checkpoint-id>/\`. You may read them,
-  and add files there (e.g. a diagram you made). Never delete or rename them.
+- Attachments for a checkpoint live in \`<roadmap>/attachments/<checkpoint-id>/\`: images, PDFs, video (MP4, MOV,
+  WebM), audio (MP3, M4A, WAV, OGG, FLAC) and documents (Word, Excel, PowerPoint, text, CSV, notebooks…).
+  You may read them and add files there (e.g. a diagram you made). Never delete or rename them.
 - Embed an image in any section: \`![caption](../attachments/<checkpoint-id>/file.png)\`.
-  Link a PDF: \`[Lecture slides](../attachments/<checkpoint-id>/slides.pdf)\`. Paths are relative to the
-  checkpoint file, so they also work in Obsidian or VS Code.
+  Link a PDF, video, audio file or document: \`[Lecture slides](../attachments/<checkpoint-id>/slides.pdf)\`.
+  A link to a video or audio file on its own line shows as a player. Paths are relative to the checkpoint
+  file, so they also work in Obsidian or VS Code.
+- YouTube, Vimeo and Loom: put the plain link on its own line and the app shows a Play card that plays
+  inside it; add \`?t=750\` (or \`&t=12m30s\`) to start at a moment. As a resource, give \`kind: video\` and
+  \`start: "12:30"\`. Use real video links only; never invent ids or timestamps.
 - Link another checkpoint by its id: \`[Gradient descent](cp-k3x9a2mf)\`. Web links: normal Markdown links.
 - Maths: LaTeX with \`$…$\` inline and a \`$$\` block on its own lines for display equations, e.g.
   \`$\\nabla f(x) = 0$\`. Write \`\\$\` for a literal dollar sign. The app renders it with KaTeX.

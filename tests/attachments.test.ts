@@ -32,7 +32,7 @@ describe('attachments', () => {
     const pdf = await ws.addAttachment(RM, CP, 'notes:week<1>.pdf', new TextEncoder().encode('%PDF-1.4 test'));
     expect(pdf.name).toBe('notes-week-1-.pdf');
     expect(ws.getRoadmap(RM).attachments[CP]!.map((x) => x.kind)).toEqual(['image', 'image', 'pdf']);
-    await expect(ws.addAttachment(RM, CP, 'run.exe', PNG)).rejects.toThrow(/Attach images/);
+    await expect(ws.addAttachment(RM, CP, 'run.exe', PNG)).rejects.toThrow(/You can attach/);
     await expect(ws.addAttachment(RM, 'cp-nope', 'x.png', PNG)).rejects.toThrow(/Checkpoint not found/);
     expect(safeFileName('CON.png')).toBe('file-CON.png');
   });

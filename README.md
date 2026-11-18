@@ -51,7 +51,8 @@ keyboard, language and large-roadmap checks before a release: [docs/QA.md](docs/
 | New roadmap | **New roadmap**: pick *Learning* (adds objectives, practice, evidence, understanding) or *General*, a folder and a colour |
 | Export | ⋯ → **Export**: PDF (print view → *Save as PDF*), web page, Markdown, map image (PNG), OPML for mind-map apps, or a full backup. Whole roadmap or one branch; with or without your personal notes. |
 | Import | **Import**: a full backup (`.waymark.zip`, attachments included) or data file (`.waymark.json`), a Markdown outline (headings and lists become checkpoints, e.g. a syllabus pasted from a chat), or OPML from mind-map apps |
-| Images and PDFs | Drop them on a checkpoint's page, paste a screenshot (Ctrl+V), or use **Attachments → Add**. Pasting or dropping into a section you're editing inserts the image or a link right there. Click any image or PDF to open it in the built-in viewer (zoom, page jumps, working links, Ctrl+F). |
+| Files and media | Drop them on a checkpoint's page, paste a screenshot (Ctrl+V), or use **Attachments → Add**: images, PDFs, video (MP4, MOV, WebM, up to 500 MB), audio (MP3, M4A, WAV, OGG, FLAC) and documents (Word, Excel, PowerPoint, text, CSV, notebooks, EPUB, ZIP). Pasting or dropping into a section you're editing inserts the image or a link right there. Images, PDFs (zoom, page jumps, working links, Ctrl+F), video and audio open in the built-in viewer; documents download, or open in their own app in the desktop app. A link to a video or audio file on its own line plays in the note. |
+| YouTube, Vimeo, Loom | Put the link on its own line in a note: it shows a **▶ Play** card that plays right there, from the link's time (`?t=750`, `&t=12m30s`). Clicking such a link anywhere plays it in the viewer. Resources that are videos get **▶ Play here** at their start time, and adding a link as a resource fills in its title, type and start time. Nothing loads from YouTube until you press play. Research and decisions: [docs/MEDIA.md](docs/MEDIA.md). |
 | Maths | Write LaTeX: `$a^2+b^2=c^2$` inline, or a display equation between `$$` lines. It renders in notes, in the editor (with a live preview) and in PDF and web page exports. Write `\$` for a plain dollar sign. |
 | Links | Web links open in a new tab; `[title](cp-…)` jumps to another checkpoint; links to attachments open the viewer. While editing, Ctrl+click follows a link. |
 | Add checkpoints | Toolbar **+ Main checkpoint**, the toolbar above a selected checkpoint, or press **A** (sub-checkpoint) / **N** (next). You type the name right on the map. |
@@ -153,7 +154,7 @@ statuses + understanding + approval, progress, autosave and offline queue, live 
 rules, review inbox, proposals, conflict detection, history/undo/trash, export/import, templates,
 maths (LaTeX via KaTeX) in notes, editor and exports, daily full backups with attachments, export to PDF,
 web page, Markdown, PNG, OPML and backup, import from backups, Markdown outlines and OPML, search,
-keyboard shortcuts, light/dark themes, small screens. 46 automated tests cover the file format, change
+keyboard shortcuts, light/dark themes, small screens. 68 automated tests cover the file format, change
 engine, guard rules, conflicts, review, trash, history, folders (including folders moved outside the app),
 export formats, maths, sticky notes, outline import, attachments and zip backups (including blocked path tricks), agent
 session notes and keeping agent formatting when you edit.
@@ -168,4 +169,4 @@ folder into another folder from the app (rename works; move folders in your file
 All runtime dependencies are open source: React, React Flow (@xyflow/react), d3-hierarchy, Milkdown,
 react-arborist, Radix UI, cmdk, sonner, lucide, Tailwind CSS, Hono, chokidar, zod, yaml, jsdiff, nanoid,
 micromark/mdast (Markdown), html-to-image (map PNG), react-pdf (MIT) with Mozilla pdf.js (Apache-2.0),
-KaTeX (MIT, maths), fflate (MIT, zip backups), IBM Plex fonts (OFL). The desktop app adds Electron and electron-updater (MIT; its shell and release workflow follow Actual Budget's MIT-licensed desktop app). Waymark makes no network requests while running, except the desktop app's update check (GitHub Releases), which you can turn off under Help.
+KaTeX (MIT, maths), fflate (MIT, zip backups), htmlparser2 (MIT, link titles), IBM Plex fonts (OFL). The desktop app adds Electron and electron-updater (MIT; its shell and release workflow follow Actual Budget's MIT-licensed desktop app). Waymark makes no network requests on its own. It goes online only for the desktop app's update check (GitHub Releases, can be turned off under Help), a YouTube/Vimeo/Loom video you press play on, and the title of a link you add as a resource.

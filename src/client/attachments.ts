@@ -1,7 +1,9 @@
-// Attaching images and PDFs to checkpoints, and turning the paths stored in Markdown into URLs.
+// Attaching files to checkpoints (images, PDFs, video, audio, documents: docs/MEDIA.md), turning the
+// paths stored in Markdown into URLs, and opening files and video links in the viewer.
 
 import type { Attachment } from '../shared/model';
 import { attachmentRel } from '../shared/exporters';
+import { ATTACHMENT_TYPES, attachmentKind, type Embed } from '../shared/media';
 import { setState } from './store';
 
 export interface Uploaded {
@@ -20,11 +22,25 @@ const EXT_FOR_TYPE: Record<string, string> = {
   'image/bmp': 'bmp',
   'image/svg+xml': 'svg',
   'application/pdf': 'pdf',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'audio/mpeg': 'mp3',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/ogg': 'ogg',
+  'audio/flac': 'flac',
+  'audio/aac': 'aac',
 };
 
 export function isAttachable(file: File): boolean {
-  return !!EXT_FOR_TYPE[file.type] || /\.(png|jpe?g|gif|webp|avif|bmp|svg|pdf)$/i.test(file.name);
+  return !!EXT_FOR_TYPE[file.type] || !!attachmentKind(file.name);
 }
+
+/** For <input type=file accept>: every type a checkpoint can keep. */
+export const ATTACH_ACCEPT = ['image/*', 'video/*', 'audio/*', ...Object.keys(ATTACHMENT_TYPES).map((e) => `.${e}`)].join(',');
 
 /** URL the app can load an attached file from. `rel` is the path inside the roadmap folder. */
 export function fileUrl(roadmapId: string, rel: string, download = false): string {
@@ -74,8 +90,12 @@ export async function uploadAttachment(roadmapId: string, checkpointId: string, 
 
 export function openViewer(roadmapId: string, rel: string, name?: string) {
   const file = name ?? rel.split('/').pop() ?? rel;
-  const kind: Attachment['kind'] = /\.pdf$/i.test(rel) ? 'pdf' : /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(rel) ? 'image' : 'other';
-  setState({ viewer: { roadmapId, path: rel, name: file, kind } });
+  setState({ viewer: { roadmapId, path: rel, name: file, kind: attachmentKind(rel) ?? 'other' } });
+}
+
+/** Play a YouTube, Vimeo or Loom video in the viewer (its player loads now, on this click). */
+export function openEmbed(embed: Embed, title?: string) {
+  setState({ viewer: { roadmapId: '', path: '', name: title || embed.label, kind: 'embed', embed } });
 }
 
 export function formatSize(bytes: number): string {

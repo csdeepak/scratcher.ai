@@ -2,6 +2,8 @@
 // The Markdown files in the workspace are the source of truth; these types are
 // their parsed form. See docs/DATA-FORMAT.md for the on-disk format.
 
+import type { AttachmentKind } from './media';
+
 export const SCHEMA = 'waymark/1';
 export const SCHEMA_VERSION = 1;
 
@@ -182,22 +184,11 @@ export interface Attachment {
   path: string;
   size: number;
   modified: string;
-  kind: 'image' | 'pdf' | 'other';
+  kind: AttachmentKind;
 }
 
-export const ATTACHMENT_TYPES: Record<string, { mime: string; kind: Attachment['kind'] }> = {
-  png: { mime: 'image/png', kind: 'image' },
-  jpg: { mime: 'image/jpeg', kind: 'image' },
-  jpeg: { mime: 'image/jpeg', kind: 'image' },
-  gif: { mime: 'image/gif', kind: 'image' },
-  webp: { mime: 'image/webp', kind: 'image' },
-  avif: { mime: 'image/avif', kind: 'image' },
-  bmp: { mime: 'image/bmp', kind: 'image' },
-  svg: { mime: 'image/svg+xml', kind: 'image' },
-  pdf: { mime: 'application/pdf', kind: 'pdf' },
-};
-
-export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+// Which files a checkpoint can keep, and how large: see src/shared/media.ts (docs/MEDIA.md).
+export { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, MAX_MEDIA_BYTES, maxBytesFor } from './media';
 
 export interface Problem {
   file: string;

@@ -15,6 +15,8 @@ export interface DesktopBridge {
   useFolder: (dir: string) => Promise<{ ok: boolean; error?: string }>;
   /** Copy the workspace into this folder, check it, and open it there; the page reloads on success. */
   moveWorkspace: (dir: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Open an attached document (Word, notebook, CSV…) in the app the computer uses for it. */
+  openFile: (absPath: string) => Promise<{ ok: boolean; error?: string } | null>;
   /** The menu asks the page to open a dialog. Returns an unsubscribe function. */
   onOpen: (cb: (what: string) => void) => () => void;
 }

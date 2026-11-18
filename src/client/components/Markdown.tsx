@@ -11,7 +11,10 @@ import { Selection, TextSelection } from '@milkdown/kit/prose/state';
 import { insert } from '@milkdown/kit/utils';
 import { fixImageAlts, preserveFormatting } from '../../shared/preserveFormatting';
 import { attachmentRel } from '../../shared/exporters';
-import { encodeTarget, isAttachable, markdownFor, openViewer, resolveSrc, type Uploaded } from '../attachments';
+import { encodeTarget, isAttachable, markdownFor, openEmbed, openViewer, resolveSrc, type Uploaded } from '../attachments';
+import { attachmentKind, parseEmbed } from '../../shared/media';
+import { InlinePlayer, mediaForLink } from './MediaBlocks';
+import type { Element, ElementContent } from 'hast';
 import { getState, navigate, selectCheckpoint } from '../store';
 import { manageFormatBar, type BarCommand } from '../formatBar';
 import { barItem, rememberNoteIcon } from '../toolbars';
@@ -31,11 +34,17 @@ export function toggleTaskAt(text: string, offset: number): string {
 }
 
 /**
- * Follow a link written in a note: attached files open in the viewer, `cp-…` ids open that
- * checkpoint, everything else opens in a new browser tab. Returns true when handled here.
+ * Follow a link written in a note: attached files open in the viewer, YouTube / Vimeo / Loom videos
+ * play in the viewer (at their timestamp), `cp-…` ids open that checkpoint, everything else opens in
+ * a new browser tab. Returns true when handled here.
  */
 export function followLink(roadmapId: string | undefined, href: string): boolean {
   if (!href) return false;
+  const embed = parseEmbed(href);
+  if (embed) {
+    openEmbed(embed);
+    return true;
+  }
   const rel = attachmentRel(href);
   if (rel && roadmapId) {
     openViewer(roadmapId, rel);
@@ -51,6 +60,16 @@ export function followLink(roadmapId: string | undefined, href: string): boolean
   return false;
 }
 
+/** The link a paragraph consists of (ignoring spaces), with its visible text; null otherwise. */
+function loneLink(node: Element | undefined): { href: string; text: string } | null {
+  const kids = (node?.children ?? []).filter((k) => !(k.type === 'text' && !k.value.trim()));
+  const a = kids.length === 1 && kids[0]!.type === 'element' && kids[0]!.tagName === 'a' ? kids[0]! : null;
+  const href = a?.properties?.href;
+  if (!a || typeof href !== 'string') return null;
+  const text = (n: ElementContent): string => (n.type === 'text' ? n.value : n.type === 'element' ? n.children.map(text).join('') : '');
+  return { href, text: a.children.map(text).join('').trim() };
+}
+
 // Maths: $…$ inline and $$…$$ blocks, rendered with KaTeX. Mistakes show in red instead of breaking the page.
 const REMARK_PLUGINS = [remarkGfm, remarkMath];
 const REHYPE_PLUGINS: [typeof rehypeKatex, { throwOnError: boolean; strict: 'ignore' }][] = [[rehypeKatex, { throwOnError: false, strict: 'ignore' }]];
@@ -64,7 +83,12 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
         components={{
           // dir="auto" per block (W3C i18n advice for user-written text): each paragraph, heading or
           // list item runs right to left when it is written in Arabic, Hebrew, Urdu…, left to right otherwise.
-          p: ({ node: _n, ...p }) => <p dir="auto" {...p} />,
+          // A paragraph that is only a video link, or a link to attached video or audio, plays here.
+          p: ({ node, ...p }) => {
+            const link = loneLink(node);
+            const media = link && mediaForLink(link.href, link.text, roadmapId);
+            return media ? <div className="wm-media">{media}</div> : <p dir="auto" {...p} />;
+          },
           h1: ({ node: _n, ...p }) => <h1 dir="auto" {...p} />,
           h2: ({ node: _n, ...p }) => <h2 dir="auto" {...p} />,
           h3: ({ node: _n, ...p }) => <h3 dir="auto" {...p} />,
@@ -87,6 +111,9 @@ export const MarkdownView = memo(function MarkdownView({ text, onToggleTask, roa
           img: ({ node: _n, src, alt, ...p }) => {
             const s = typeof src === 'string' ? src : '';
             const rel = attachmentRel(s);
+            // ![clip](…/clip.mp4) (the Obsidian way of embedding media) plays too.
+            const kind = rel ? attachmentKind(rel) : null;
+            if (rel && roadmapId && (kind === 'video' || kind === 'audio')) return <InlinePlayer roadmapId={roadmapId} rel={rel} label={alt || rel.split('/').pop() || rel} />;
             return (
               <img
                 {...p}

@@ -9,9 +9,11 @@ import { opSchema, formatZodError, type AnyOp } from '../shared/ops';
 import { buildBrief } from './brief';
 import { parseCheckpoint } from '../shared/checkpointFile';
 import { getProfile } from '../shared/profiles';
-import { ATTACHMENT_TYPES, MAX_ATTACHMENT_BYTES, MAX_MAP_NOTES, type FieldPath } from '../shared/model';
-import { readFile } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { ATTACHMENT_TYPES, MAX_MAP_NOTES, maxBytesFor, type FieldPath } from '../shared/model';
+import { readFile, stat } from 'node:fs/promises';
+import { createReadStream, readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
+import { linkInfo } from './linkInfo';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { slugify } from '../shared/ids';
@@ -294,14 +296,26 @@ export function createApp(ws: Workspace) {
     return c.json(r.ok ? { ok: true, warnings: r.warnings } : r);
   });
 
-  // Attachments: images and PDFs stored in <roadmap>/attachments/<checkpoint-id>/
+  // Attachments (images, PDFs, video, audio, documents) in <roadmap>/attachments/<checkpoint-id>/,
+  // streamed to disk as they arrive (docs/MEDIA.md).
   app.post('/api/roadmaps/:id/attachments', async (c) => {
     const cp = c.req.query('cp') ?? '';
     const name = c.req.query('name') ?? 'file';
     const declared = Number(c.req.header('content-length') ?? 0);
-    if (declared > MAX_ATTACHMENT_BYTES) throw new HttpError(413, `Files up to ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB can be attached.`);
-    const data = new Uint8Array(await c.req.arrayBuffer());
-    return c.json(await ws.addAttachment(c.req.param('id'), cp, name, data), 201);
+    const limit = maxBytesFor(name);
+    if (declared > limit) throw new HttpError(413, `Files like this can be up to ${limit / 1024 / 1024} MB.`);
+    return c.json(await ws.addAttachmentStream(c.req.param('id'), cp, name, c.req.raw.body), 201);
+  });
+
+  // A link's title, site, type and start time, when the user adds it as a resource (docs/MEDIA.md).
+  app.post('/api/link-info', async (c) => {
+    const b = await body(c, z.object({ url: z.string().min(1).max(4000) }));
+    if (!/^https?:\/\/\S+$/i.test(b.url.trim())) throw new HttpError(400, 'Only web links (http or https) can be looked up.');
+    try {
+      return c.json(await linkInfo(b.url));
+    } catch (e) {
+      throw new HttpError(502, `Couldn't read that page: ${(e as Error).message}.`);
+    }
   });
 
   app.delete('/api/roadmaps/:id/attachments', async (c) => c.json(await ws.removeAttachment(c.req.param('id'), c.req.query('path') ?? '')));
@@ -310,22 +324,47 @@ export function createApp(ws: Workspace) {
     const id = c.req.param('id');
     const rel = decodeURIComponent(c.req.path.split(`/api/roadmaps/${id}/files/`)[1] ?? '');
     const file = ws.attachmentFile(id, rel);
-    let data: Buffer;
+    let size: number;
     try {
-      data = await readFile(file);
+      const st = await stat(file);
+      if (!st.isFile()) throw new Error('not a file');
+      size = st.size;
     } catch {
       throw new HttpError(404, 'File not found.');
     }
     const ext = file.split('.').pop()?.toLowerCase() ?? '';
+    const type = ATTACHMENT_TYPES[ext];
+    // Documents (Word, notebooks, ZIP…) and unknown files are only ever downloaded, never shown here.
+    const inline = !c.req.query('download') && !!type && type.kind !== 'other';
     const headers: Record<string, string> = {
-      'Content-Type': ATTACHMENT_TYPES[ext]?.mime ?? 'application/octet-stream',
+      'Content-Type': type?.mime ?? 'application/octet-stream',
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Disposition': `${c.req.query('download') ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(path.basename(file))}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(path.basename(file))}`,
     };
-    // SVG (and anything unknown) can carry scripts: never let it run in Waymark's origin.
-    if (ext === 'svg' || !ATTACHMENT_TYPES[ext]) headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
-    return c.body(new Uint8Array(data), 200, headers);
+    // SVG, documents and anything unknown can carry scripts: never let them run in Waymark's origin.
+    if (ext === 'svg' || !type || type.kind === 'other') headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox";
+    // Range requests (RFC 7233), so video and audio can seek without loading the whole file.
+    let start = 0;
+    let end = size - 1;
+    let status: 200 | 206 = 200;
+    const range = /^bytes=(\d*)-(\d*)$/.exec(c.req.header('range') ?? '');
+    if (range && (range[1] || range[2])) {
+      if (range[1]) {
+        start = Number(range[1]);
+        if (range[2]) end = Math.min(Number(range[2]), size - 1);
+      } else start = Math.max(0, size - Number(range[2]));
+      if (start > end || start >= size) {
+        return c.body(null, 416, { 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' });
+      }
+      status = 206;
+      headers['Content-Range'] = `bytes ${start}-${end}/${size}`;
+    }
+    headers['Content-Length'] = String(size === 0 ? 0 : end - start + 1);
+    if (size === 0) return c.body(new Uint8Array(0), 200, headers);
+    const stream = Readable.toWeb(createReadStream(file, { start, end })) as unknown as ReadableStream<Uint8Array>;
+    return c.body(stream, status, headers);
   });
 
   // pdf.js data (fonts, character maps, decoders), served locally so PDFs render offline.

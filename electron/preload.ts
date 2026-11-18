@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('waymarkDesktop', {
   chooseFolder: (start?: string) => ipcRenderer.invoke('waymark:choose-folder', start),
   useFolder: (dir: string) => ipcRenderer.invoke('waymark:use-folder', dir),
   moveWorkspace: (dir: string) => ipcRenderer.invoke('waymark:move-workspace', dir),
+  openFile: (absPath: string) => ipcRenderer.invoke('waymark:open-file', absPath),
   onOpen: (cb: (what: string) => void) => {
     const h = (_e: IpcRendererEvent, what: unknown) => cb(String(what));
     ipcRenderer.on('waymark:open', h);

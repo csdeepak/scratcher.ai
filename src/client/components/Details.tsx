@@ -14,6 +14,7 @@ import {
   Ellipsis,
   ExternalLink,
   FileText,
+  Film,
   Focus,
   GraduationCap,
   Info,
@@ -21,6 +22,7 @@ import {
   Lock,
   Maximize2,
   Minimize2,
+  Music,
   Pencil,
   Play,
   Plus,
@@ -32,7 +34,8 @@ import {
   X,
 } from 'lucide-react';
 import type { Attachment, Checkpoint, FieldPath, Resource, ResourceKind, Roadmap, SectionKey } from '../../shared/model';
-import { fileUrl, formatSize, isAttachable, markdownFor, openViewer, uploadAttachment } from '../attachments';
+import { ATTACH_ACCEPT, fileUrl, formatSize, isAttachable, markdownFor, openEmbed, openViewer, uploadAttachment } from '../attachments';
+import { extOf, formatTimestamp, parseEmbed } from '../../shared/media';
 import { SECTION_DEFS, UNDERSTANDING_LEVELS, getProfile, statusDef, type Profile } from '../../shared/profiles';
 import { ancestors, childrenIndex, compareSiblings, effectiveAccess, type Progress } from '../../shared/tree';
 import { requiresTransitively } from '../../shared/ops';
@@ -823,7 +826,7 @@ function AttachmentsBlock({ rm, cp, attach }: { rm: Roadmap; cp: Checkpoint; att
           ref={input}
           type="file"
           multiple
-          accept="image/*,.pdf,application/pdf"
+          accept={ATTACH_ACCEPT}
           className="hidden"
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
@@ -833,7 +836,7 @@ function AttachmentsBlock({ rm, cp, attach }: { rm: Roadmap; cp: Checkpoint; att
         />
       </div>
       {items.length === 0 ? (
-        <div className="px-2 text-[12.5px] text-faint">Images and PDFs: drop them on this page, paste a screenshot (Ctrl+V), or use Add.</div>
+        <div className="px-2 text-[12.5px] text-faint">Images, PDFs, video, audio and documents (Word, slides, notebooks, CSV…): drop them on this page, paste a screenshot (Ctrl+V), or use Add.</div>
       ) : (
         <ul className="grid grid-cols-2 gap-2 px-1 sm:grid-cols-3">
           {items.map((a) => (
@@ -842,9 +845,9 @@ function AttachmentsBlock({ rm, cp, attach }: { rm: Roadmap; cp: Checkpoint; att
                 {a.kind === 'image' ? (
                   <img src={fileUrl(rm.meta.id, a.path)} alt={a.name} loading="lazy" className="h-24 w-full bg-surface-2 object-cover" />
                 ) : (
-                  <div className="flex h-24 w-full items-center justify-center bg-surface-2 text-danger">
-                    <FileText size={30} strokeWidth={1.5} />
-                    <span className="ml-1 text-[11px] font-bold uppercase">{a.kind === 'pdf' ? 'PDF' : 'File'}</span>
+                  <div className={cx('flex h-24 w-full items-center justify-center bg-surface-2', a.kind === 'pdf' ? 'text-danger' : a.kind === 'other' ? 'text-muted' : 'text-accent')}>
+                    {a.kind === 'video' ? <Film size={30} strokeWidth={1.5} /> : a.kind === 'audio' ? <Music size={30} strokeWidth={1.5} /> : <FileText size={30} strokeWidth={1.5} />}
+                    <span className="ml-1 text-[11px] font-bold uppercase">{a.kind === 'pdf' ? 'PDF' : a.kind === 'video' ? 'Video' : a.kind === 'audio' ? 'Audio' : extOf(a.name) || 'File'}</span>
                   </div>
                 )}
                 <div className="px-2 py-1.5">
@@ -884,8 +887,10 @@ function ResourcesBlock({ cp }: { cp: Checkpoint }) {
         </button>
       </div>
       <ul className="grid gap-0.5">
-        {cp.resources.map((r, i) =>
-          editing === i ? (
+        {cp.resources.map((r, i) => {
+          // YouTube, Vimeo and Loom resources play inside Waymark, from their start time.
+          const embed = parseEmbed(r.url, r.start);
+          return editing === i ? (
             <li key={i}>
               <ResourceForm
                 initial={r}
@@ -904,10 +909,20 @@ function ResourcesBlock({ cp }: { cp: Checkpoint }) {
                   <a href={resourceHref(r)} target="_blank" rel="noreferrer noopener" className="min-w-0 truncate text-[13px] font-medium text-fg hover:text-accent hover:underline">
                     {r.title || r.url}
                   </a>
-                  {r.start && (
-                    <a href={resourceHref(r)} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 rounded bg-accent-soft px-1 text-[11px] font-medium text-accent">
-                      <Play size={9} fill="currentColor" /> {r.start}
-                    </a>
+                  {embed ? (
+                    <button
+                      onClick={() => openEmbed(embed, r.title)}
+                      className="inline-flex min-h-6 items-center gap-1 rounded bg-accent-soft px-1.5 text-[11px] font-medium text-accent-hover hover:bg-accent hover:text-accent-fg"
+                      aria-label={`Play ${r.title || 'video'} here${embed.start ? ` from ${formatTimestamp(embed.start)}` : ''}`}
+                    >
+                      <Play size={9} fill="currentColor" /> {embed.start ? formatTimestamp(embed.start) : 'Play here'}
+                    </button>
+                  ) : (
+                    r.start && (
+                      <a href={resourceHref(r)} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 rounded bg-accent-soft px-1 text-[11px] font-medium text-accent-hover">
+                        <Play size={9} fill="currentColor" /> {r.start}
+                      </a>
+                    )
                   )}
                   <span className="text-[11.5px] text-faint">{hostOf(r.url)}</span>
                 </div>
@@ -922,8 +937,8 @@ function ResourcesBlock({ cp }: { cp: Checkpoint }) {
                 </IconButton>
               </div>
             </li>
-          ),
-        )}
+          );
+        })}
       </ul>
       {editing === 'new' && (
         <ResourceForm
@@ -941,8 +956,28 @@ function ResourcesBlock({ cp }: { cp: Checkpoint }) {
 
 function ResourceForm({ initial, onSave, onCancel }: { initial?: Resource; onSave: (r: Resource) => void; onCancel: () => void }) {
   const [r, setR] = useState<Resource>(initial ?? { title: '', url: '', kind: 'article' });
+  const [lookup, setLookup] = useState<null | 'busy' | { error: string }>(null);
   const field = 'h-8 rounded-lg border border-line bg-surface px-2.5 text-[13px] outline-none focus:border-accent';
   const isVideo = r.kind === 'video';
+  // Fill in the title, type and start time from the page (docs/MEDIA.md): only when a web link is
+  // added and the title is still empty, so Waymark contacts a site only on this explicit action.
+  const fill = async (raw: string) => {
+    const url = raw.trim();
+    if (!/^https?:\/\/\S+$/i.test(url) || r.title.trim()) return;
+    setLookup('busy');
+    try {
+      const info = await http.post<{ title?: string; kind?: ResourceKind; start?: number }>('/api/link-info', { url });
+      setR((cur) => ({
+        ...cur,
+        title: cur.title.trim() ? cur.title : (info.title ?? ''),
+        kind: info.kind ?? cur.kind,
+        start: cur.start?.trim() ? cur.start : info.start ? formatTimestamp(info.start) : cur.start,
+      }));
+      setLookup(null);
+    } catch (e) {
+      setLookup({ error: (e as Error).message });
+    }
+  };
   return (
     <form
       className="mt-1 grid gap-2 rounded-xl border border-line bg-surface-2 p-3"
@@ -965,10 +1000,20 @@ function ResourceForm({ initial, onSave, onCancel }: { initial?: Resource; onSav
         aria-label="URL"
         onChange={(e) => {
           const url = e.target.value;
-          const video = /youtube\.com|youtu\.be|vimeo\.com/.test(url);
+          const video = !!parseEmbed(url);
           setR({ ...r, url, kind: video && (!r.kind || r.kind === 'article') ? 'video' : r.kind });
         }}
+        onPaste={(e) => {
+          const pasted = e.clipboardData.getData('text');
+          if (pasted) void fill(pasted);
+        }}
+        onBlur={(e) => void fill(e.target.value)}
       />
+      {lookup && (
+        <div role="status" className="-mt-1 px-1 text-[11.5px] text-muted">
+          {lookup === 'busy' ? 'Getting the title from the page…' : `${lookup.error} You can type the title yourself.`}
+        </div>
+      )}
       <input className={field} placeholder="Title" value={r.title} aria-label="Title" onChange={(e) => setR({ ...r, title: e.target.value })} />
       <div className="flex gap-2">
         <select className={cx(field, 'flex-1')} value={r.kind ?? 'other'} aria-label="Kind" onChange={(e) => setR({ ...r, kind: e.target.value as ResourceKind })}>
