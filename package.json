@@ -1,6 +1,6 @@
 {
   "name": "waymark",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Local-first visual roadmap notebook, editable by you and by any file-editing AI agent.",
   "type": "module",
