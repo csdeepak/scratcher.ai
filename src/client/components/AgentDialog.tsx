@@ -7,6 +7,7 @@ import { Bot, Copy, GraduationCap, Lightbulb, ListChecks, NotebookPen, Sparkles,
 import { http } from '../api';
 import { setState, useStore } from '../store';
 import { ConnectAgents } from './Connect';
+import { TargetPicker, useAgentTarget } from './TargetPicker';
 import { Button, Chip, Modal, cx } from './ui';
 
 type Flow = 'start' | 'wrapup' | 'brainstorm' | 'quiz' | 'expand' | 'draft';
@@ -24,9 +25,10 @@ const FORMAT_KEY = 'waymark.sessionFormat';
 
 export function AgentDialog() {
   const open = useStore((s) => s.dialog === 'agent');
-  const rm = useStore((s) => s.roadmap);
-  const selectedId = useStore((s) => s.selectedId);
   const workspace = useStore((s) => s.workspace);
+  // The roadmap and checkpoint the prompts are for: what's open and selected, or picked in the dialog.
+  const target = useAgentTarget(open);
+  const { rm, cp } = target;
   const tab = useStore((s) => s.agentTab);
   const setTab = (agentTab: typeof tab) => setState({ agentTab });
   const [flow, setFlow] = useState<Flow>('wrapup');
@@ -39,7 +41,6 @@ export function AgentDialog() {
   });
   const [request, setRequest] = useState('');
   const [scope, setScope] = useState<'section' | 'roadmap'>('section');
-  const cp = selectedId && rm ? rm.checkpoints[selectedId] : null;
 
   useEffect(() => {
     if (!open) return;
@@ -47,7 +48,7 @@ export function AgentDialog() {
     if (!cp) setFlow('draft');
     else if (flow === 'draft') setFlow('wrapup');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, cp?.id]);
+  }, [open, rm?.meta.id, cp?.id]);
 
   // Paths in the style of this computer (backslashes on Windows).
   const sep = workspace.includes('\\') ? '\\' : '/';
@@ -98,7 +99,7 @@ Never rewrite or delete my existing notes, and never mark progress or understand
   const copyBrief = async () => {
     if (!rm) return;
     try {
-      const res = await http.post<{ text: string }>(`/api/roadmaps/${rm.meta.id}/brief`, { checkpointId: scope === 'section' ? selectedId : null, request });
+      const res = await http.post<{ text: string }>(`/api/roadmaps/${rm.meta.id}/brief`, { checkpointId: scope === 'section' && cp ? cp.id : null, request });
       copy(res.text, 'Brief copied. Paste it into your chat, then paste the reply in Review → Paste proposal.');
     } catch (e) {
       toast.error((e as Error).message);
@@ -123,32 +124,23 @@ Never rewrite or delete my existing notes, and never mark progress or understand
 
       {tab === 'prompts' && (
         <div className="grid gap-4 text-[13px]">
-          <div className="text-[12.5px] text-muted">
-            {rm ? (
-              <>
-                For <b className="text-fg">{rm.meta.title}</b>
-                {cp ? (
-                  <>
-                    {' '}
-                    › <b className="text-fg">{cp.title}</b>
-                  </>
-                ) : (
-                  ' (select a checkpoint for session prompts)'
-                )}
-              </>
-            ) : (
-              'Open a roadmap to get prompts for it.'
-            )}
-          </div>
+          <TargetPicker target={target} />
+          {!cp && (
+            <p className="-mt-2 text-[12px] text-muted">
+              {rm ? 'Pick a checkpoint above for the session prompts; Draft works on the whole roadmap.' : 'Pick a roadmap above, or copy the prompt below to have your agent create a new one.'}
+            </p>
+          )}
           <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Workflow">
             {FLOWS.map((f) => {
               const disabled = !rm || (f.needsCp && !cp);
+              const why = !rm ? 'Pick a roadmap first' : 'Pick a checkpoint first';
               return (
                 <button
                   key={f.key}
                   role="radio"
                   aria-checked={flow === f.key}
                   disabled={disabled}
+                  title={disabled ? why : undefined}
                   onClick={() => setFlow(f.key)}
                   className={cx('flex gap-2.5 rounded-lg border p-2.5 text-left disabled:opacity-40', flow === f.key ? 'border-accent bg-accent-soft' : 'border-line hover:bg-surface-2')}
                 >
@@ -215,6 +207,7 @@ Never rewrite or delete my existing notes, and never mark progress or understand
           <p className="text-muted">
             For ChatGPT or Claude on the web, or when you only upload a copy of a file: copy a brief, paste it into the chat, then paste the reply into <b>Review → Paste proposal</b>. Session notes arrive as additions to My notes, and you preview everything before it's applied.
           </p>
+          <TargetPicker target={target} />
           {rm ? (
             <>
               {cp && (
@@ -251,7 +244,7 @@ Never rewrite or delete my existing notes, and never mark progress or understand
               </div>
             </>
           ) : (
-            <p className="text-muted">Open a roadmap first.</p>
+            <p className="text-muted">Pick a roadmap above.</p>
           )}
         </div>
       )}
