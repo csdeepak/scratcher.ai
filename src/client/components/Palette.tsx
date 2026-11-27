@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Command } from 'cmdk';
 import { Dialog } from 'radix-ui';
-import { ArrowRight, Bot, Cable, Download, FolderOpen, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
+import { ArrowRight, Bot, Cable, MessageSquareHeart, Download, FolderOpen, Upload, Focus, House, Inbox, Keyboard, Map as MapIcon, Moon, Plus, Search, SlidersHorizontal, Sun } from 'lucide-react';
 import { http } from '../api';
 import { getState, navigate, overview, selectCheckpoint, setFocus, setState, setTheme, useStore } from '../store';
 import { addCheckpoint } from '../actions';
 import { customiseToolbar } from '../toolbars';
+import { openFeedback } from '../feedback';
 import { Kbd, useReturnFocus } from './ui';
 
 interface Hit {
@@ -140,6 +141,9 @@ export function CommandPalette() {
                     </Command.Item>
                     <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'connect' }))}>
                       <Cable size={14} /> Connect your AI (Claude, ChatGPT, …)
+                    </Command.Item>
+                    <Command.Item className={item} onSelect={() => run(() => openFeedback())}>
+                      <MessageSquareHeart size={14} /> Send feedback
                     </Command.Item>
                     <Command.Item className={item} onSelect={() => run(() => setState({ dialog: 'workspace' }))}>
                       <FolderOpen size={14} /> Workspace folder: change or move

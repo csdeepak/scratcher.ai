@@ -1,0 +1,16 @@
+name: An idea or a missing feature
+description: Something Waymark should do, or do differently.
+title: "Idea: "
+labels: ["idea"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation or problem, in your words (for example "revise for exams", "share a roadmap with my study group").
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?

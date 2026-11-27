@@ -431,6 +431,15 @@ function buildMenu() {
           click: (item) => writeConfig({ autoUpdate: item.checked }),
         },
         { type: 'separator' },
+        {
+          label: 'Send feedback…',
+          click: () => {
+            const os = isMac ? 'macOS' : process.platform === 'win32' ? 'Windows' : 'Linux';
+            const q = new URLSearchParams({ template: '1-feedback.yml', version: `${app.getVersion()}, ${os} (desktop app)` });
+            void shell.openExternal(`${REPO}/issues/new?${q}`);
+          },
+        },
+        { label: 'Report a problem…', click: () => void shell.openExternal(`${REPO}/issues/new?template=2-bug.yml`) },
         { label: 'Waymark on GitHub', click: () => void shell.openExternal(REPO) },
         {
           label: 'About Waymark',

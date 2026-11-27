@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How to install and try Waymark
+    url: https://github.com/csdeepak/scratcher.ai/blob/main/docs/TRY-WAYMARK.md
+    about: Download, install, and a 15-minute tour to try before giving feedback.

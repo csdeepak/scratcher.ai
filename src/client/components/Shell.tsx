@@ -6,6 +6,7 @@ import {
   NotebookTabs,
   Bot,
   Cable,
+  MessageSquareHeart,
   Check,
   ChevronDown,
   CloudOff,
@@ -56,6 +57,7 @@ import {
 import { addCheckpoint, addSibling, deleteMany, indent, outdent, requestDelete, shiftCheckpoint, startRename } from '../actions';
 import { MapCanvas } from './MapCanvas';
 import { desktopBridge } from '../desktop';
+import { openFeedback } from '../feedback';
 import { Outline } from './Outline';
 import { DetailsPanel } from './Details';
 import { Button, Chip, Drawer, IconButton, Kbd, Menu, Modal, ProgressBar, Tip, cx, relTime } from './ui';
@@ -214,6 +216,9 @@ export function TopBar({ onImport }: { onImport: () => void }) {
           </Menu.Item>
           <Menu.Item onSelect={() => setState({ dialog: 'connect' })}>
             <Cable size={14} /> Connect your AI…
+          </Menu.Item>
+          <Menu.Item onSelect={() => openFeedback()}>
+            <MessageSquareHeart size={14} /> Send feedback…
           </Menu.Item>
           <Menu.Separator />
           <Menu.Sub>

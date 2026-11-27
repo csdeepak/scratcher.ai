@@ -8,6 +8,11 @@ Desktop with file access, Codex, Cursor, …) edits the same folder; Waymark sho
 second, protects your notes and progress, and lets you keep or revert what the agent did. No account,
 no subscription, no AI API, no internet needed after installing.
 
+**Try it:** download the app from the [latest release](https://github.com/csdeepak/scratcher.ai/releases/latest)
+(Windows, Mac, Linux), follow the 15-minute tour in [docs/TRY-WAYMARK.md](docs/TRY-WAYMARK.md), and
+[tell me what you think](https://github.com/csdeepak/scratcher.ai/issues/new?template=1-feedback.yml)
+(or ⋯ → Send feedback in the app).
+
 - Design and decisions: [docs/DESIGN.md](docs/DESIGN.md)
 - File formats, changesets, export bundles, local API: [docs/DATA-FORMAT.md](docs/DATA-FORMAT.md)
 - Windows, macOS, desktop installer and web plans: [docs/PLATFORMS.md](docs/PLATFORMS.md)
